@@ -140,16 +140,20 @@ body {
   background: var(--surface); padding: 4px 12px; border-radius: 4px;
   border: 1px solid var(--border);
 }
-.detail-content .body {
+.detail-content .body.md-body {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 24px; line-height: 1.8; font-size: 14px;
-  white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word;
+  word-break: break-word; overflow-wrap: break-word;
 }
-.detail-content .actions { margin-top: 20px; display: flex; gap: 10px; }
-.detail-content .actions button {
-  padding: 8px 20px; background: var(--red); color: #fff; border: none;
-  border-radius: var(--radius); cursor: pointer; font-size: 13px;
-}
+.md-body h1,.md-body h2,.md-body h3 { color: var(--accent); margin: 16px 0 10px; }
+.md-body h2 { font-size: 1.1rem; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.md-body code { background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 13px; word-break: break-all; }
+.md-body pre { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; margin: 10px 0; overflow-x: auto; }
+.md-body pre code { background: none; padding: 0; font-size: 13px; }
+.md-body p { margin: 8px 0; }
+.md-body ul,.md-body ol { padding-left: 24px; margin: 8px 0; }
+.md-body li { margin: 4px 0; }
+.md-body strong { color: #e6edf3; }
 /* ── Utilities ── */
 .status-msg { color: var(--muted); font-size: 13px; padding: 8px 0; }
 .error-msg { color: var(--red); font-size: 13px; padding: 8px 0; }
@@ -288,10 +292,13 @@ async function viewEntry(id) {
         <span>标签: ${esc(e.tags || '—')}</span>
         <span>来源: ${e.source}</span>
       </div>
-      <div class="body">${esc(e.content)}</div>
+      <div class="body md-body">${marked.parse(e.content)}</div>
       <div class="actions">
         <button onclick="deleteEntry(${e.id})">🗑 删除</button>
+        <button onclick="reformatEntry(${e.id})" style="background:var(--accent)">✨ 格式化</button>
       </div>`;
+    // Highlight code blocks
+    document.querySelectorAll('.md-body pre code').forEach(block => hljs.highlightElement(block));
     // Highlight in sidebar
     document.querySelectorAll('.entry-item').forEach(el => el.classList.remove('active'));
     const item = document.querySelector(`.entry-item[data-id="${id}"]`);
@@ -309,6 +316,19 @@ async function deleteEntry(id) {
     switchTab('ask');
     loadEntries();
   } catch(e) { alert('删除失败: ' + e.message); }
+}
+
+async function reformatEntry(id) {
+  if (!confirm('用 AI 重新格式化这条知识为 Markdown？')) return;
+  const el = document.getElementById('detail-content');
+  el.innerHTML = '<div class="status-msg"><span class="spinner"></span>AI 格式化中...</div>';
+  try {
+    const resp = await fetch(API + '/entry/' + id + '/reformat', { method: 'POST' });
+    const e = await resp.json();
+    viewEntry(id);  // re-render
+  } catch(e) {
+    el.innerHTML = `<div class="error-msg">格式化失败: ${e.message}</div>`;
+  }
 }
 
 // ── Ask ──
@@ -372,7 +392,7 @@ async function doAdd() {
   try {
     const resp = await fetch(API + '/add', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ content, title, tags, auto_meta: true })
+      body: JSON.stringify({ content, title, tags, auto_meta: true, format_md: true })
     });
     const data = await resp.json();
     status.textContent = `✅ 已录入 (id=${data.id}) — ${data.title}`;

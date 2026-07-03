@@ -21,12 +21,14 @@ class AddRequest(BaseModel):
     title: str = ""
     tags: str = ""
     auto_meta: bool = True
+    format_md: bool = True
 
 
 class AddResponse(BaseModel):
     id: int
     title: str
     tags: str
+    content: str = ""
 
 
 class AskRequest(BaseModel):
@@ -71,8 +73,9 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
             tags=req.tags,
             source="web",
             auto_meta=req.auto_meta,
+            format_md=req.format_md,
         )
-        return AddResponse(id=result["id"], title=result["title"], tags=result["tags"])
+        return AddResponse(id=result["id"], title=result["title"], tags=result["tags"], content=result.get("content", ""))
 
     @app.post("/api/ask", response_model=AskResponse)
     async def api_ask(req: AskRequest):
@@ -120,6 +123,16 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
             raise HTTPException(status_code=404, detail="条目不存在")
         return JSONResponse({"deleted": entry_id})
 
+
+    @app.post("/api/entry/{entry_id}/reformat")
+    async def api_reformat(entry_id: int):
+        try:
+            entry = kb.reformat_entry(entry_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        if not entry:
+            raise HTTPException(status_code=404, detail="条目不存在")
+        return JSONResponse(entry)
     return app
 
 

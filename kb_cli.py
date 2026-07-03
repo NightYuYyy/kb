@@ -134,6 +134,24 @@ def delete(
 
 
 @app.command()
+def reformat(
+    entry_id: int = typer.Argument(..., help="要重新格式化的条目 ID"),
+):
+    """用 AI 将已有条目重新格式化为 Markdown。"""
+    kb = _get_kb()
+    typer.echo("⏳ AI 格式化中...", err=True)
+    try:
+        entry = kb.reformat_entry(entry_id)
+        if not entry:
+            typer.echo(f"✗ 条目 {entry_id} 不存在", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(f"✓ 已格式化条目 {entry_id} — {entry['title']}")
+    except Exception as e:
+        typer.echo(f"✗ 格式化失败: {e}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def serve(
     host: str = typer.Option("", "--host", "-h", help="监听地址"),
     port: int = typer.Option(0, "--port", "-p", help="监听端口"),

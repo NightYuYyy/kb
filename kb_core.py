@@ -5,7 +5,7 @@ kb_core.py — 知识库核心引擎
 
 from __future__ import annotations
 
-import os
+import json
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -52,11 +52,9 @@ class Config:
                 raw = yaml.safe_load(f) or {}
         else:
             raw = {}
-
         api_raw = raw.get("api", {})
         storage_raw = raw.get("storage", {})
         server_raw = raw.get("server", {})
-
         return cls(
             api=ApiConfig(
                 base_url=api_raw.get("base_url", "https://api.siliconflow.cn/v1"),
@@ -64,9 +62,7 @@ class Config:
                 embedding_model=api_raw.get("embedding_model", "BAAI/bge-m3"),
                 llm_model=api_raw.get("llm_model", "deepseek-ai/DeepSeek-V3"),
             ),
-            storage=StorageConfig(
-                db_path=storage_raw.get("db_path", "data/kb.db"),
-            ),
+            storage=StorageConfig(db_path=storage_raw.get("db_path", "data/kb.db")),
             server=ServerConfig(
                 host=server_raw.get("host", "0.0.0.0"),
                 port=server_raw.get("port", 8765),
@@ -99,9 +95,7 @@ class KBStore:
                 updated_at  REAL    NOT NULL
             )
         """)
-        self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_entries_tags ON entries(tags)
-        """)
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_entries_tags ON entries(tags)")
         self._conn.commit()
 
     def add(self, content: str, title: str = "", tags: str = "",
@@ -122,6 +116,20 @@ class KBStore:
             "UPDATE entries SET title = ?, tags = ?, updated_at = ? WHERE id = ?",
             (title, tags, now, entry_id),
         )
+        self._conn.commit()
+
+    def update_content(self, entry_id: int, content: str, embedding: Optional[np.ndarray] = None):
+        now = time.time()
+        if embedding is not None:
+            self._conn.execute(
+                "UPDATE entries SET content = ?, embedding = ?, updated_at = ? WHERE id = ?",
+                (content, embedding.tobytes(), now, entry_id),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE entries SET content = ?, updated_at = ? WHERE id = ?",
+                (content, now, entry_id),
+            )
         self._conn.commit()
 
     def get(self, entry_id: int) -> Optional[dict]:
@@ -161,7 +169,6 @@ class KBStore:
         return cur.rowcount > 0
 
     def get_all_embeddings(self) -> list[tuple[int, np.ndarray]]:
-        """返回 [(id, embedding_array), ...]，仅包含有 embedding 的条目。"""
         rows = self._conn.execute(
             "SELECT id, embedding FROM entries WHERE embedding IS NOT NULL"
         ).fetchall()
@@ -176,30 +183,23 @@ class KBStore:
         if row is None:
             return None
         return {
-            "id": row[0],
-            "content": row[1],
-            "title": row[2],
-            "tags": row[3],
-            "source": row[4],
-            "created_at": row[6],
-            "updated_at": row[7],
+            "id": row[0], "content": row[1], "title": row[2],
+            "tags": row[3], "source": row[4],
+            "created_at": row[6], "updated_at": row[7],
         }
 
 
 # ── Vector Search ────────────────────────────────────────────────────────────
 
 def cosine_similarity(vecs: np.ndarray, query: np.ndarray) -> np.ndarray:
-    """批量计算余弦相似度。vecs: (N, D), query: (D,) → (N,)"""
     vecs_norm = np.linalg.norm(vecs, axis=1)
     query_norm = np.linalg.norm(query)
-    # 避免除零
     denom = vecs_norm * query_norm
     denom[denom == 0] = 1e-10
     return np.dot(vecs, query) / denom
 
 
 def search_similar(store: KBStore, query_vec: np.ndarray, k: int = 5) -> list[dict]:
-    """在 store 中搜索与 query_vec 最相似的 k 条记录。"""
     pairs = store.get_all_embeddings()
     if not pairs:
         return []
@@ -219,50 +219,71 @@ def search_similar(store: KBStore, query_vec: np.ndarray, k: int = 5) -> list[di
 # ── AI Client ─────────────────────────────────────────────────────────────────
 
 class AIClient:
-    """封装硅基流动 API：embedding + LLM 问答。"""
+    """封装硅基流动 API：embedding + LLM 问答 + Markdown 格式化。"""
 
     def __init__(self, config: ApiConfig):
         self.config = config
-        self._client = OpenAI(base_url=config.base_url, api_key=config.api_key, timeout=30.0, max_retries=1)
+        self._client = OpenAI(
+            base_url=config.base_url, api_key=config.api_key,
+            timeout=60.0, max_retries=1,
+        )
 
     def embed(self, text: str) -> np.ndarray:
         resp = self._client.embeddings.create(
-            model=self.config.embedding_model,
-            input=text,
+            model=self.config.embedding_model, input=text,
         )
-        vec = np.array(resp.data[0].embedding, dtype=np.float32)
-        return vec
+        return np.array(resp.data[0].embedding, dtype=np.float32)
 
     def extract_meta(self, content: str) -> tuple[str, str]:
-        """用 LLM 从内容中提取 title 和 tags。"""
         prompt = (
-            "你是一个知识库助手。从以下用户输入的文本中提取标题（简短摘要）和标签（逗号分隔的英文/中文关键词）。\n"
-            "只输出 JSON 格式：{\"title\": \"...\", \"tags\": \"...\"}\n\n"
-            f"用户输入：\n{content}\n\n"
-            "直接输出 JSON："
+            "从以下文本提取标题（简短摘要）和标签（逗号分隔关键词）。只输出 JSON。\n"
+            "格式：{\"title\": \"...\", \"tags\": \"...\"}\n\n"
+            f"{content}\n\nJSON:"
         )
         resp = self._client.chat.completions.create(
             model=self.config.llm_model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=200,
+            temperature=0.3, max_tokens=200,
         )
         raw = resp.choices[0].message.content.strip()
-        # 容错：尝试从响应中提取 JSON
-        import json
+        # Strip optional ``` fences
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1]
+            if raw.rstrip().endswith("```"):
+                raw = raw.rstrip()[:-3]
         try:
-            # 可能带 markdown 代码块标记
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1]
-                if raw.endswith("```"):
-                    raw = raw[:-3]
             data = json.loads(raw.strip())
             return data.get("title", ""), data.get("tags", "")
         except (json.JSONDecodeError, IndexError):
             return "", ""
 
+    def format_content(self, raw_text: str) -> str:
+        """用 LLM 将自由文本格式化为结构化 Markdown，自动 strip 外层代码块。"""
+        prompt = (
+            "将以下文本整理成结构化的 Markdown。规则：\n"
+            "- 用 ## 标题概括主题\n"
+            "- 命令/代码用 ``` 代码块，标注语言\n"
+            "- 参数说明用列表或小标题\n"
+            "- 保留所有信息，不删减\n"
+            "- 直接输出 Markdown，禁止用 ```markdown 包裹\n\n"
+            f"{raw_text}\n\nMarkdown:"
+        )
+        resp = self._client.chat.completions.create(
+            model=self.config.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3, max_tokens=2000,
+        )
+        result = resp.choices[0].message.content.strip()
+        # Strip outer ``` fences if present
+        if result.startswith("```"):
+            first_nl = result.find("\n")
+            if first_nl != -1:
+                result = result[first_nl + 1:]
+            if result.rstrip().endswith("```"):
+                result = result.rstrip()[:-3].strip()
+        return result
+
     def ask(self, query: str, context_entries: list[dict]) -> str:
-        """基于检索到的知识库条目，用 LLM 回答问题。"""
         if not context_entries:
             context_text = "（知识库中没有找到相关内容）"
         else:
@@ -270,31 +291,24 @@ class AIClient:
             for e in context_entries:
                 parts.append(
                     f"--- 条目 {e['id']} (标题: {e['title']}) ---\n"
-                    f"内容: {e['content']}\n"
-                    f"标签: {e['tags']}"
+                    f"内容: {e['content']}\n标签: {e['tags']}"
                 )
             context_text = "\n\n".join(parts)
-
-        system_prompt = (
-            "你是一个个人知识库助手。根据以下知识库条目内容回答用户问题。\n"
-            "如果知识库中有相关信息，请准确引用并给出详细说明。\n"
-            "如果知识库中没有相关信息，请如实告知，不要编造。\n"
-            "回答要简洁、准确、直接给出命令或步骤。"
-        )
-        user_prompt = (
-            f"知识库内容：\n{context_text}\n\n"
-            f"用户问题：{query}\n\n"
-            "请根据知识库内容回答："
-        )
-
         resp = self._client.chat.completions.create(
             model=self.config.llm_model,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "system", "content": (
+                    "你是一个个人知识库助手。根据以下知识库条目内容回答用户问题。"
+                    "如果知识库中有相关信息，请准确引用并给出详细说明。"
+                    "如果知识库中没有相关信息，请如实告知，不要编造。"
+                    "回答要简洁、准确、直接给出命令或步骤。"
+                )},
+                {"role": "user", "content": (
+                    f"知识库内容：\n{context_text}\n\n"
+                    f"用户问题：{query}\n\n请根据知识库内容回答："
+                )},
             ],
-            temperature=0.3,
-            max_tokens=2000,
+            temperature=0.3, max_tokens=2000,
         )
         return resp.choices[0].message.content.strip()
 
@@ -310,18 +324,22 @@ class KnowledgeBase:
         self.ai = AIClient(config.api) if config.api.api_key else None
 
     def add(self, content: str, title: str = "", tags: str = "",
-            source: str = "cli", auto_meta: bool = True) -> dict:
-        """添加一条知识。auto_meta=True 时自动用 LLM 提取标题和标签。"""
-        # 自动提取元数据
+            source: str = "cli", auto_meta: bool = True, format_md: bool = True) -> dict:
+        """添加一条知识。auto_meta 提取元数据，format_md 格式化为 Markdown。"""
+        if format_md and self.ai:
+            try:
+                content = self.ai.format_content(content)
+            except Exception:
+                pass
+
         if auto_meta and self.ai and (not title or not tags):
             try:
                 auto_title, auto_tags = self.ai.extract_meta(content)
                 title = title or auto_title
                 tags = tags or auto_tags
             except Exception:
-                pass  # LLM 提取失败不阻塞录入
+                pass
 
-        # 生成 embedding
         embedding = None
         if self.ai:
             try:
@@ -330,20 +348,27 @@ class KnowledgeBase:
                 pass
 
         entry_id = self.store.add(content, title, tags, source, embedding)
-        return {"id": entry_id, "title": title, "tags": tags}
+        return {"id": entry_id, "title": title, "tags": tags, "content": content}
+
+    def reformat_entry(self, entry_id: int) -> Optional[dict]:
+        """用 LLM 重新格式化已有条目为 Markdown。"""
+        entry = self.store.get(entry_id)
+        if not entry:
+            return None
+        if not self.ai:
+            return entry
+        new_content = self.ai.format_content(entry["content"])
+        embedding = self.ai.embed(new_content)
+        self.store.update_content(entry_id, new_content, embedding)
+        return self.store.get(entry_id)
 
     def search(self, query: str, k: int = 5) -> list[dict]:
-        """语义检索。"""
         if not self.ai:
             return []
-        try:
-            query_vec = self.ai.embed(query)
-            return search_similar(self.store, query_vec, k)
-        except Exception as e:
-            raise RuntimeError(f"检索失败: {e}")
+        query_vec = self.ai.embed(query)
+        return search_similar(self.store, query_vec, k)
 
     def ask(self, query: str, k: int = 5) -> str:
-        """检索 + LLM 回答。"""
         if not self.ai:
             return "错误：未配置 API key，无法使用问答功能。"
         entries = self.search(query, k)
@@ -363,11 +388,8 @@ class KnowledgeBase:
 
     def set_meta(self, entry_id: int, title: str, tags: str):
         self.store.update_title_tags(entry_id, title, tags)
-        # 重新生成 embedding（因为内容可能未变，但标题变了不改变 embedding 也合理）
-        # 这里只更新元数据，不重新 embed
 
 
 def load_kb(config_path: str = "data/config.yaml") -> KnowledgeBase:
-    """从配置文件加载 KnowledgeBase 实例。"""
     config = Config.load(config_path)
     return KnowledgeBase(config)
