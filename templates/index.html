@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KB 知识库</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --red: #f85149; --orange: #d2991d;
+  --radius: 8px; --sidebar-w: 320px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text); height: 100vh; overflow: hidden;
+  display: flex;
+}
+/* ── Sidebar ── */
+.sidebar {
+  width: var(--sidebar-w); min-width: var(--sidebar-w);
+  background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; height: 100vh;
+}
+.sidebar-header {
+  padding: 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.sidebar-header h1 { font-size: 1.1rem; color: var(--accent); white-space: nowrap; }
+.sidebar-search {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  display: flex; gap: 8px;
+}
+.sidebar-search input {
+  flex: 1; padding: 8px 12px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px;
+}
+.sidebar-search button {
+  padding: 8px 14px; background: var(--accent); color: #fff; border: none;
+  border-radius: var(--radius); cursor: pointer; font-size: 13px; white-space: nowrap;
+}
+.entry-list {
+  flex: 1; overflow-y: auto; padding: 8px 0;
+}
+.entry-item {
+  padding: 10px 16px; cursor: pointer; border-bottom: 1px solid transparent;
+  transition: background 0.15s;
+}
+.entry-item:hover { background: rgba(88,166,255,0.06); }
+.entry-item.active { background: rgba(88,166,255,0.12); border-color: var(--border); }
+.entry-item .title {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.entry-item .meta {
+  font-size: 11px; color: var(--muted); margin-top: 2px;
+  display: flex; gap: 8px; align-items: center;
+}
+.entry-item .tags { color: var(--green); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry-item .id { color: var(--muted); flex-shrink: 0; }
+.entry-item .score { color: var(--orange); flex-shrink: 0; font-weight: 600; }
+/* ── Main ── */
+.main {
+  flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+}
+.main-toolbar {
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.main-toolbar .tab-btn {
+  padding: 6px 14px; background: none; color: var(--muted); border: 1px solid var(--border);
+  border-radius: var(--radius); cursor: pointer; font-size: 13px;
+}
+.main-toolbar .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.main-toolbar .spacer { flex: 1; }
+.main-content {
+  flex: 1; overflow-y: auto; padding: 24px 32px; max-width: 900px;
+}
+/* ── Ask panel ── */
+.ask-box { margin-bottom: 20px; }
+.ask-box textarea {
+  width: 100%; padding: 14px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px;
+  font-family: inherit; resize: vertical; min-height: 80px;
+}
+.ask-box .ask-row { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.ask-box .ask-row button {
+  padding: 10px 28px; background: var(--accent); color: #fff; border: none;
+  border-radius: var(--radius); cursor: pointer; font-size: 14px;
+}
+.answer-block {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 24px 28px; margin-bottom: 16px; line-height: 1.8; font-size: 14px;
+  word-break: break-word; overflow-wrap: break-word; max-width: 100%;
+}
+.answer-block h1,.answer-block h2,.answer-block h3 { margin: 16px 0 10px; color: var(--accent); }
+.answer-block h2 { font-size: 1.1rem; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.answer-block code {
+  background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 13px;
+  word-break: break-all;
+}
+.answer-block pre {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; overflow-x: auto; margin: 12px 0; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+.answer-block pre code { background: none; padding: 0; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+.answer-block p { margin: 8px 0; }
+.answer-block ul,.answer-block ol { padding-left: 24px; margin: 8px 0; }
+.answer-block li { margin: 4px 0; }
+.answer-block strong { color: #e6edf3; }
+.sources-label {
+  font-size: 12px; color: var(--muted); margin-bottom: 8px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+/* ── Add panel ── */
+.add-form textarea {
+  width: 100%; padding: 14px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  resize: vertical; min-height: 160px;
+}
+.add-form .row { display: flex; gap: 10px; margin-top: 10px; }
+.add-form .row input {
+  flex: 1; padding: 10px 14px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px;
+}
+/* ── Detail panel ── */
+.detail-content { max-width: 100%; }
+.detail-content h2 { color: var(--accent); margin-bottom: 10px; font-size: 1.2rem; }
+.detail-content .meta-row {
+  display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.detail-content .meta-row span {
+  background: var(--surface); padding: 4px 12px; border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.detail-content .body {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 24px; line-height: 1.8; font-size: 14px;
+  white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word;
+}
+.detail-content .actions { margin-top: 20px; display: flex; gap: 10px; }
+.detail-content .actions button {
+  padding: 8px 20px; background: var(--red); color: #fff; border: none;
+  border-radius: var(--radius); cursor: pointer; font-size: 13px;
+}
+/* ── Utilities ── */
+.status-msg { color: var(--muted); font-size: 13px; padding: 8px 0; }
+.error-msg { color: var(--red); font-size: 13px; padding: 8px 0; }
+.empty-state { color: var(--muted); text-align: center; padding: 40px; font-size: 14px; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--muted); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.panel { display: none; }
+.panel.active { display: block; }
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h1>📚 KB 知识库</h1>
+    <span style="font-size:12px;color:var(--muted)" id="entry-count">0 条</span>
+  </div>
+  <div class="sidebar-search">
+    <input type="text" id="sidebar-search-input" placeholder="搜索或输入问题..." onkeydown="if(event.key==='Enter')doAskFromSidebar()">
+    <button onclick="doAskFromSidebar()">🔍</button>
+  </div>
+  <div class="entry-list" id="entry-list">
+    <div class="empty-state">暂无条目<br><span style="font-size:12px">点击右上角 + 添加</span></div>
+  </div>
+</aside>
+
+<!-- Main -->
+<main class="main">
+  <div class="main-toolbar">
+    <button class="tab-btn active" onclick="switchTab('ask')">💬 问答</button>
+    <button class="tab-btn" onclick="switchTab('add')">➕ 录入</button>
+    <span class="spacer"></span>
+    <span style="font-size:12px;color:var(--muted)">Ctrl+Enter 提交</span>
+  </div>
+
+  <div class="main-content">
+    <!-- Ask -->
+    <div id="panel-ask" class="panel active">
+      <div class="ask-box">
+        <textarea id="ask-input" placeholder="问什么都可以，比如：怎么升级 omc？怎么给视频提取音频？"></textarea>
+        <div class="ask-row">
+          <button onclick="doAsk()">提问</button>
+          <span class="status-msg" id="ask-status"></span>
+        </div>
+      </div>
+      <div id="ask-result"></div>
+    </div>
+
+    <!-- Add -->
+    <div id="panel-add" class="panel">
+      <div class="add-form">
+        <textarea id="add-content" placeholder="粘贴命令、脚本用法、工具说明...&#10;支持自然语言，系统会自动提取标题和标签"></textarea>
+        <div class="row">
+          <input type="text" id="add-title" placeholder="标题（可选，AI 自动生成）">
+          <input type="text" id="add-tags" placeholder="标签（可选，逗号分隔）">
+          <button onclick="doAdd()">录入</button>
+        </div>
+        <span class="status-msg" id="add-status"></span>
+      </div>
+    </div>
+
+    <!-- Detail -->
+    <div id="panel-detail" class="panel">
+      <div class="detail-content" id="detail-content"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = '/api';
+let currentTab = 'ask';
+let currentEntryId = null;
+marked.setOptions({ breaks: true, gfm: true });
+
+// ── Init ──
+loadEntries();
+
+// ── Tab switching ──
+function switchTab(name) {
+  currentTab = name;
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    if (b.textContent.includes(name === 'ask' ? '问答' : name === 'add' ? '录入' : '')) b.classList.add('active');
+  });
+}
+
+// ── Load entries ──
+async function loadEntries(tag) {
+  const params = new URLSearchParams({ limit: '200' });
+  if (tag) params.set('tag', tag);
+  try {
+    const resp = await fetch(API + '/list?' + params);
+    const data = await resp.json();
+    document.getElementById('entry-count').textContent = data.total + ' 条';
+    renderEntryList(data.entries, data.total);
+  } catch(e) { /* ignore */ }
+}
+
+function renderEntryList(entries, total) {
+  const el = document.getElementById('entry-list');
+  if (!entries.length) {
+    el.innerHTML = '<div class="empty-state">暂无条目<br><span style="font-size:12px">切换到"录入"添加</span></div>';
+    return;
+  }
+  let html = '';
+  entries.forEach(e => {
+    const title = e.title || '条目 ' + e.id;
+    const activeCls = (currentEntryId === e.id) ? ' active' : '';
+    html += `<div class="entry-item${activeCls}" onclick="viewEntry(${e.id})" data-id="${e.id}">
+      <div class="title">${esc(title)}</div>
+      <div class="meta"><span class="tags">${esc(e.tags || '—')}</span><span class="id">#${e.id}</span></div>
+    </div>`;
+  });
+  el.innerHTML = html;
+}
+
+// ── View entry ──
+async function viewEntry(id) {
+  currentEntryId = id;
+  switchTab('detail');
+  document.getElementById('detail-content').innerHTML = '<div class="status-msg"><span class="spinner"></span>加载中...</div>';
+  try {
+    const resp = await fetch(API + '/entry/' + id);
+    const e = await resp.json();
+    document.getElementById('detail-content').innerHTML = `
+      <h2>${esc(e.title || '条目 ' + e.id)}</h2>
+      <div class="meta-row">
+        <span>ID: ${e.id}</span>
+        <span>标签: ${esc(e.tags || '—')}</span>
+        <span>来源: ${e.source}</span>
+      </div>
+      <div class="body">${esc(e.content)}</div>
+      <div class="actions">
+        <button onclick="deleteEntry(${e.id})">🗑 删除</button>
+      </div>`;
+    // Highlight in sidebar
+    document.querySelectorAll('.entry-item').forEach(el => el.classList.remove('active'));
+    const item = document.querySelector(`.entry-item[data-id="${id}"]`);
+    if (item) { item.classList.add('active'); item.scrollIntoView({ block: 'nearest' }); }
+  } catch(e) {
+    document.getElementById('detail-content').innerHTML = `<div class="error-msg">加载失败: ${e.message}</div>`;
+  }
+}
+
+async function deleteEntry(id) {
+  if (!confirm('确定删除条目 ' + id + '？')) return;
+  try {
+    await fetch(API + '/entry/' + id, { method: 'DELETE' });
+    currentEntryId = null;
+    switchTab('ask');
+    loadEntries();
+  } catch(e) { alert('删除失败: ' + e.message); }
+}
+
+// ── Ask ──
+async function doAskFromSidebar() {
+  const q = document.getElementById('sidebar-search-input').value.trim();
+  if (!q) return;
+  document.getElementById('ask-input').value = q;
+  switchTab('ask');
+  doAsk();
+}
+
+async function doAsk() {
+  const query = document.getElementById('ask-input').value.trim();
+  if (!query) return;
+
+  const status = document.getElementById('ask-status');
+  const result = document.getElementById('ask-result');
+  status.innerHTML = '<span class="spinner"></span> 检索中...';
+  result.innerHTML = '';
+
+  try {
+    const resp = await fetch(API + '/ask', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ query, k: 5 })
+    });
+    const data = await resp.json();
+
+    // Render answer with markdown
+    const answerHtml = marked.parse(data.answer);
+    let html = `<div class="answer-block">${answerHtml}</div>`;
+
+    if (data.sources && data.sources.length) {
+      html += '<div class="sources-label">📖 参考条目</div>';
+      data.sources.forEach(s => {
+        html += `<div class="entry-item" onclick="viewEntry(${s.id})" style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px">
+          <div class="title">${esc(s.title || '条目 ' + s.id)} <span class="score">${(s.score*100).toFixed(0)}%</span></div>
+          <div class="meta"><span style="color:var(--text);font-size:12px">${esc(s.content).substring(0, 120)}...</span></div>
+        </div>`;
+      });
+    }
+
+    result.innerHTML = html;
+    status.textContent = '✅ 完成';
+    // Highlight code blocks
+    document.querySelectorAll('.answer-block pre code').forEach(block => hljs.highlightElement(block));
+  } catch(e) {
+    result.innerHTML = `<div class="error-msg">请求失败: ${e.message}</div>`;
+    status.textContent = '❌ 失败';
+  }
+}
+
+// ── Add ──
+async function doAdd() {
+  const content = document.getElementById('add-content').value.trim();
+  if (!content) return;
+  const title = document.getElementById('add-title').value.trim();
+  const tags = document.getElementById('add-tags').value.trim();
+  const status = document.getElementById('add-status');
+  status.innerHTML = '<span class="spinner"></span> 录入中（AI 正在提取标题和标签）...';
+
+  try {
+    const resp = await fetch(API + '/add', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ content, title, tags, auto_meta: true })
+    });
+    const data = await resp.json();
+    status.textContent = `✅ 已录入 (id=${data.id}) — ${data.title}`;
+    document.getElementById('add-content').value = '';
+    document.getElementById('add-title').value = '';
+    document.getElementById('add-tags').value = '';
+    loadEntries();
+    // Auto-view the new entry
+    setTimeout(() => viewEntry(data.id), 500);
+  } catch(e) {
+    status.textContent = '❌ 失败: ' + e.message;
+  }
+}
+
+// ── Helpers ──
+function esc(s) {
+  const div = document.createElement('div');
+  div.textContent = s || '';
+  return div.innerHTML;
+}
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault();
+    if (currentTab === 'ask') doAsk();
+    else if (currentTab === 'add') doAdd();
+  }
+  if (e.ctrlKey && e.key === 'k') {
+    e.preventDefault();
+    document.getElementById('sidebar-search-input').focus();
+  }
+});
+</script>
+
+</body>
+</html>

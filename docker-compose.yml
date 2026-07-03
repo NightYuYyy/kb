@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  kb:
+    build: .
+    container_name: kb
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

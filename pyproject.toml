@@ -1,0 +1,14 @@
+[project]
+name = "kb"
+version = "1.0.0"
+description = "个人知识库"
+
+[project.scripts]
+kb = "kb_cli:app"
+
+[tool.setuptools]
+py-modules = ["kb_cli", "kb_core", "kb_web"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"

@@ -1,0 +1,17 @@
+# Data files
+data/kb.db
+data/kb.db-shm
+data/kb.db-wal
+data/config.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Docker
+.env
+
+# IDE
+.idea/
+.vscode/

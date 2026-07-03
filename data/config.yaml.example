@@ -1,0 +1,12 @@
+api:
+  base_url: https://api.siliconflow.cn/v1
+  api_key: sk-your-key-here
+  embedding_model: BAAI/bge-m3
+  llm_model: deepseek-ai/DeepSeek-V3
+
+storage:
+  db_path: data/kb.db
+
+server:
+  host: 0.0.0.0
+  port: 8765
