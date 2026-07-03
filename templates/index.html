@@ -6,307 +6,295 @@
 <title>KB — 个人知识库</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <style>
-/* ── Raycast-inspired Design Tokens ── */
+/* ── Cursor-inspired Design ── */
 :root {
-  --canvas: #07080a;
-  --surface: #0d0d0d;
-  --surface-elevated: #101111;
-  --surface-card: #121212;
-  --hairline: #242728;
-  --hairline-soft: rgba(255,255,255,0.08);
-  --ink: #f4f4f6;
-  --body: #cdcdcd;
-  --mute: #9c9c9d;
-  --ash: #6a6b6c;
-  --stone: #434345;
-  --on-dark: #ffffff;
-  --on-dark-mute: rgba(255,255,255,0.72);
-  --accent: #57c1ff;
-  --accent-soft: rgba(87,193,255,0.12);
-  --green: #59d499;
-  --green-soft: rgba(89,212,153,0.12);
-  --yellow: #ffc533;
-  --red: #ff6161;
-  --radius-sm: 6px;
+  --canvas: #f7f7f4;
+  --canvas-soft: #fafaf7;
+  --surface: #ffffff;
+  --surface-strong: #e6e5e0;
+  --hairline: #e6e5e0;
+  --hairline-soft: #efeee8;
+  --hairline-strong: #cfcdc4;
+  --ink: #26251e;
+  --ink-secondary: #5a5852;
+  --ink-muted: #807d72;
+  --ink-soft: #a09c92;
+  --primary: #f54e00;
+  --primary-hover: #d04200;
+  --green: #1f8a65;
+  --red: #cf2d56;
+  --yellow: #c08532;
+  --radius-sm: 4px;
   --radius-md: 8px;
-  --radius-lg: 10px;
-  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
+  --radius-lg: 12px;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: var(--font);
-  font-feature-settings: "calt", "kern", "liga", "ss03";
-  background: var(--canvas); color: var(--body);
-  height: 100vh; overflow: hidden; display: flex;
-  font-size: 14px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  font-family: var(--font); background: var(--canvas); color: var(--ink-secondary);
+  height: 100vh; overflow: hidden; display: flex; font-size: 14px;
+  line-height: 1.6; -webkit-font-smoothing: antialiased;
 }
 
-/* ── Sidebar ── */
+/* ── 侧栏 ── */
 .sidebar {
-  width: 300px; min-width: 300px; background: var(--surface);
+  width: 280px; min-width: 280px; background: var(--canvas-soft);
   border-right: 1px solid var(--hairline);
   display: flex; flex-direction: column; height: 100vh;
 }
 .sidebar-header {
-  padding: 20px 20px 16px;
-  display: flex; align-items: center; justify-content: space-between;
+  padding: 24px 20px 16px;
+  display: flex; align-items: baseline; justify-content: space-between;
 }
 .sidebar-header h1 {
-  font-size: 15px; font-weight: 600; color: var(--ink);
-  letter-spacing: -0.1px;
+  font-size: 18px; font-weight: 600; color: var(--ink);
+  letter-spacing: -0.3px;
 }
 .sidebar-header .count {
-  font-size: 12px; color: var(--ash); font-weight: 400;
+  font-size: 13px; color: var(--ink-muted); font-weight: 400;
 }
 .sidebar-search {
-  padding: 0 16px 12px;
+  padding: 0 16px 14px;
 }
 .sidebar-search .search-wrap {
-  display: flex; align-items: center; background: var(--surface-elevated);
-  border: 1px solid var(--hairline); border-radius: var(--radius-md);
-  padding: 0 12px; height: 36px;
+  display: flex; align-items: center; background: var(--surface);
+  border: 1px solid var(--hairline-strong); border-radius: var(--radius-md);
+  padding: 0 12px; height: 38px; transition: border-color 0.15s;
+}
+.sidebar-search .search-wrap:focus-within {
+  border-color: var(--primary); box-shadow: 0 0 0 2px rgba(245,78,0,0.1);
 }
 .sidebar-search input {
   flex: 1; background: none; border: none; color: var(--ink);
-  font-family: var(--font); font-size: 13px; outline: none;
-  font-feature-settings: "calt", "kern", "liga", "ss03";
+  font-family: var(--font); font-size: 14px; outline: none;
 }
-.sidebar-search input::placeholder { color: var(--ash); }
-.sidebar-search .search-wrap:focus-within {
-  border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft);
-}
-.sidebar-search .kbd {
-  font-size: 11px; color: var(--ash); background: var(--surface-card);
-  padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono);
-  border: 1px solid var(--hairline); white-space: nowrap;
+.sidebar-search input::placeholder { color: var(--ink-soft); }
+.sidebar-search kbd {
+  font-size: 11px; color: var(--ink-soft); font-family: var(--font-mono);
+  background: var(--surface-strong); padding: 2px 6px; border-radius: 4px;
+  border: 1px solid var(--hairline);
 }
 .entry-list { flex: 1; overflow-y: auto; }
 .entry-item {
-  padding: 10px 20px; cursor: pointer; transition: background 0.1s;
+  padding: 12px 20px; cursor: pointer; transition: background 0.1s;
   border-left: 2px solid transparent;
 }
-.entry-item:hover { background: rgba(255,255,255,0.03); }
+.entry-item:hover { background: rgba(0,0,0,0.02); }
 .entry-item.active {
-  background: var(--accent-soft); border-left-color: var(--accent);
+  background: rgba(245,78,0,0.04); border-left-color: var(--primary);
 }
 .entry-item .title {
-  font-size: 13px; font-weight: 500; color: var(--ink);
+  font-size: 14px; font-weight: 500; color: var(--ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   letter-spacing: -0.1px;
 }
 .entry-item .meta {
-  font-size: 11px; color: var(--ash); margin-top: 3px;
-  display: flex; gap: 8px; align-items: center;
+  font-size: 12px; color: var(--ink-muted); margin-top: 2px;
+  display: flex; gap: 6px; align-items: center;
 }
 .entry-item .tags { color: var(--green); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .entry-item .id { flex-shrink: 0; }
-.entry-item .score { color: var(--yellow); flex-shrink: 0; font-weight: 500; }
+.entry-item .score { color: var(--primary); flex-shrink: 0; font-weight: 500; }
 
-/* ── Main ── */
+/* ── 主区域 ── */
 .main {
   flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden;
 }
 .toolbar {
-  height: 48px; padding: 0 24px; border-bottom: 1px solid var(--hairline);
-  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+  height: 52px; padding: 0 28px; border-bottom: 1px solid var(--hairline);
+  display: flex; align-items: center; gap: 2px; flex-shrink: 0; background: var(--canvas-soft);
 }
 .tab-btn {
-  padding: 6px 14px; background: none; color: var(--body); border: none;
-  border-radius: var(--radius-sm); cursor: pointer; font-size: 13px;
-  font-family: var(--font); font-weight: 500;
-  font-feature-settings: "calt", "kern", "liga", "ss03";
-  transition: background 0.1s;
+  padding: 6px 16px; background: none; color: var(--ink-secondary); border: none;
+  border-radius: var(--radius-sm); cursor: pointer; font-size: 14px;
+  font-family: var(--font); font-weight: 500; transition: all 0.1s;
 }
-.tab-btn:hover { background: rgba(255,255,255,0.04); color: var(--ink); }
-.tab-btn.active { background: var(--surface-elevated); color: var(--on-dark); }
+.tab-btn:hover { background: var(--surface-strong); color: var(--ink); }
+.tab-btn.active { background: var(--surface); color: var(--ink); }
 .toolbar .spacer { flex: 1; }
-.toolbar .hint { font-size: 12px; color: var(--ash); }
+.toolbar .hint { font-size: 12px; color: var(--ink-soft); }
 
-.main-content { flex: 1; overflow-y: auto; padding: 32px 40px; }
+.main-content { flex: 1; overflow-y: auto; padding: 40px 48px; max-width: 860px; }
 
-/* ── Ask ── */
-.ask-input-wrap {
+/* ── 问答 ── */
+.ask-card {
   background: var(--surface); border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px;
+  border-radius: var(--radius-lg); padding: 24px; margin-bottom: 24px;
 }
-.ask-input-wrap textarea {
+.ask-card textarea {
   width: 100%; padding: 0; background: none; color: var(--ink);
-  border: none; font-family: var(--font); font-size: 15px; resize: none;
-  min-height: 28px; outline: none; line-height: 1.8;
-  font-feature-settings: "calt", "kern", "liga", "ss03";
+  border: none; font-family: var(--font); font-size: 16px; resize: none;
+  min-height: 32px; outline: none; line-height: 1.7;
 }
-.ask-input-wrap textarea::placeholder { color: var(--ash); }
-.ask-row { display: flex; gap: 10px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hairline-soft); }
+.ask-card textarea::placeholder { color: var(--ink-soft); }
+.ask-row { display: flex; gap: 10px; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--hairline-soft); }
 .btn {
-  padding: 8px 18px; border-radius: var(--radius-md); font-size: 13px;
+  padding: 8px 20px; border-radius: var(--radius-md); font-size: 14px;
   font-family: var(--font); font-weight: 500; cursor: pointer; border: none;
-  font-feature-settings: "calt", "kern", "liga", "ss03";
-  transition: all 0.1s; height: 34px; display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.15s; height: 36px; display: inline-flex; align-items: center; gap: 6px;
 }
-.btn-primary { background: var(--on-dark); color: var(--canvas); }
-.btn-primary:hover { background: #e8e8e8; }
-.btn-ghost { background: transparent; color: var(--body); border: 1px solid var(--hairline); }
-.btn-ghost:hover { background: var(--surface-elevated); color: var(--ink); }
-.btn-danger { background: transparent; color: var(--red); border: 1px solid rgba(255,97,97,0.2); }
-.btn-danger:hover { background: rgba(255,97,97,0.08); }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-ghost { background: var(--surface); color: var(--ink-secondary); border: 1px solid var(--hairline-strong); }
+.btn-ghost:hover { background: var(--canvas-soft); color: var(--ink); }
+.btn-danger { background: transparent; color: var(--red); border: 1px solid rgba(207,45,86,0.2); }
+.btn-danger:hover { background: rgba(207,45,86,0.06); }
 
 .answer-block {
   background: var(--surface); border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg); padding: 28px 32px; margin-bottom: 24px;
-  line-height: 1.8; color: var(--body);
+  border-radius: var(--radius-lg); padding: 32px 36px; margin-bottom: 24px;
+  line-height: 1.8; color: var(--ink-secondary); font-size: 15px;
 }
 .answer-block h1,.answer-block h2,.answer-block h3 {
-  color: var(--ink); margin: 20px 0 10px; font-weight: 600; letter-spacing: -0.2px;
+  color: var(--ink); margin: 24px 0 12px; font-weight: 600; letter-spacing: -0.2px;
 }
-.answer-block h2 { font-size: 17px; padding-bottom: 8px; border-bottom: 1px solid var(--hairline); }
-.answer-block h3 { font-size: 15px; }
+.answer-block h2 { font-size: 18px; padding-bottom: 8px; border-bottom: 1px solid var(--hairline); }
+.answer-block h3 { font-size: 16px; }
 .answer-block code {
-  background: var(--surface-card); padding: 2px 6px; border-radius: 4px;
-  font-size: 13px; font-family: var(--font-mono); color: var(--on-dark-mute);
+  background: var(--canvas); padding: 2px 6px; border-radius: 4px;
+  font-size: 13px; font-family: var(--font-mono); color: var(--primary-hover);
   border: 1px solid var(--hairline);
 }
 .answer-block pre {
-  background: var(--surface-card); border: 1px solid var(--hairline);
-  border-radius: var(--radius-md); padding: 16px 20px; margin: 12px 0;
+  background: var(--canvas); border: 1px solid var(--hairline);
+  border-radius: var(--radius-md); padding: 18px 22px; margin: 14px 0;
   line-height: 1.55; overflow-x: auto;
 }
 .answer-block pre code {
   background: none; padding: 0; border: none; font-size: 13px;
-  white-space: pre-wrap; word-break: break-all; color: var(--body);
+  white-space: pre-wrap; word-break: break-all; color: var(--ink-secondary);
 }
 .answer-block p { margin: 10px 0; }
-.answer-block ul,.answer-block ol { padding-left: 22px; margin: 8px 0; }
+.answer-block ul,.answer-block ol { padding-left: 24px; margin: 8px 0; }
 .answer-block li { margin: 4px 0; }
 .answer-block strong { color: var(--ink); font-weight: 600; }
-.sources-label {
-  font-size: 12px; color: var(--ash); margin-bottom: 10px;
-  text-transform: uppercase; letter-spacing: 0.4px; font-weight: 500;
+.source-label {
+  font-size: 12px; color: var(--ink-soft); margin-bottom: 10px;
+  font-weight: 500; letter-spacing: 0.3px;
 }
 .source-card {
   background: var(--surface); border: 1px solid var(--hairline);
-  border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 8px;
+  border-radius: var(--radius-md); padding: 14px 20px; margin-bottom: 8px;
   cursor: pointer; transition: border-color 0.1s;
 }
-.source-card:hover { border-color: var(--accent); }
-.source-card .s-title { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
-.source-card .s-score { color: var(--yellow); font-size: 12px; font-weight: 500; }
-.source-card .s-preview { font-size: 12px; color: var(--ash); margin-top: 4px; }
+.source-card:hover { border-color: var(--primary); }
+.source-card .s-title { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+.source-card .s-score { color: var(--primary); font-size: 12px; font-weight: 500; }
+.source-card .s-preview { font-size: 13px; color: var(--ink-muted); margin-top: 6px; }
 
-/* ── Add ── */
+/* ── 录入 ── */
 .add-form textarea {
-  width: 100%; padding: 16px; background: var(--surface); color: var(--ink);
-  border: 1px solid var(--hairline); border-radius: var(--radius-lg); font-size: 14px;
-  font-family: var(--font-mono); resize: vertical; min-height: 180px; outline: none;
-  font-feature-settings: "calt", "kern", "liga", "ss03";
-  line-height: 1.7;
+  width: 100%; padding: 18px; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--hairline-strong); border-radius: var(--radius-lg); font-size: 14px;
+  font-family: var(--font-mono); resize: vertical; min-height: 200px; outline: none;
+  line-height: 1.8; transition: border-color 0.15s;
 }
-.add-form textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
-.add-form textarea::placeholder { color: var(--ash); font-family: var(--font); }
-.add-form .row { display: flex; gap: 10px; margin-top: 12px; }
+.add-form textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(245,78,0,0.1); }
+.add-form textarea::placeholder { color: var(--ink-soft); font-family: var(--font); }
+.add-form .row { display: flex; gap: 10px; margin-top: 14px; }
 .add-form .row input {
   flex: 1; padding: 10px 14px; background: var(--surface); color: var(--ink);
-  border: 1px solid var(--hairline); border-radius: var(--radius-md); font-size: 13px;
-  font-family: var(--font); outline: none;
-  font-feature-settings: "calt", "kern", "liga", "ss03";
+  border: 1px solid var(--hairline-strong); border-radius: var(--radius-md); font-size: 14px;
+  font-family: var(--font); outline: none; transition: border-color 0.15s;
 }
-.add-form .row input:focus { border-color: var(--accent); }
-.add-form .row input::placeholder { color: var(--ash); }
+.add-form .row input:focus { border-color: var(--primary); }
+.add-form .row input::placeholder { color: var(--ink-soft); }
 
-/* ── Detail ── */
+/* ── 详情 ── */
 .detail-content { max-width: 100%; }
-.detail-content h2 { font-size: 20px; font-weight: 600; color: var(--ink); margin-bottom: 12px; letter-spacing: -0.2px; }
+.detail-content h2 { font-size: 22px; font-weight: 600; color: var(--ink); margin-bottom: 12px; letter-spacing: -0.3px; }
 .detail-content .meta-row {
-  display: flex; gap: 10px; font-size: 12px; color: var(--ash); margin-bottom: 24px; flex-wrap: wrap;
+  display: flex; gap: 8px; font-size: 13px; color: var(--ink-muted); margin-bottom: 24px; flex-wrap: wrap;
 }
 .detail-content .meta-row span {
-  background: var(--surface-elevated); padding: 3px 10px; border-radius: var(--radius-sm);
+  background: var(--canvas); padding: 3px 10px; border-radius: var(--radius-sm);
   border: 1px solid var(--hairline);
 }
 .detail-content .md-body {
   background: var(--surface); border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg); padding: 28px 32px; line-height: 1.8; color: var(--body);
+  border-radius: var(--radius-lg); padding: 32px 36px; line-height: 1.8; color: var(--ink-secondary); font-size: 15px;
 }
 .detail-content .md-body h1,.md-body h2,.md-body h3 {
-  color: var(--ink); margin: 20px 0 10px; font-weight: 600;
+  color: var(--ink); margin: 24px 0 12px; font-weight: 600;
 }
-.detail-content .md-body h2 { font-size: 17px; padding-bottom: 8px; border-bottom: 1px solid var(--hairline); }
-.detail-content .md-body h3 { font-size: 15px; }
+.detail-content .md-body h2 { font-size: 18px; padding-bottom: 8px; border-bottom: 1px solid var(--hairline); }
+.detail-content .md-body h3 { font-size: 16px; }
 .detail-content .md-body code {
-  background: var(--surface-card); padding: 2px 6px; border-radius: 4px;
-  font-size: 13px; font-family: var(--font-mono); color: var(--on-dark-mute);
+  background: var(--canvas); padding: 2px 6px; border-radius: 4px;
+  font-size: 13px; font-family: var(--font-mono); color: var(--primary-hover);
   border: 1px solid var(--hairline);
 }
 .detail-content .md-body pre {
-  background: var(--surface-card); border: 1px solid var(--hairline);
-  border-radius: var(--radius-md); padding: 16px 20px; margin: 12px 0;
+  background: var(--canvas); border: 1px solid var(--hairline);
+  border-radius: var(--radius-md); padding: 18px 22px; margin: 14px 0;
   line-height: 1.55; overflow-x: auto;
 }
 .detail-content .md-body pre code {
   background: none; padding: 0; border: none; font-size: 13px;
-  white-space: pre-wrap; word-break: break-all; color: var(--body);
+  white-space: pre-wrap; word-break: break-all; color: var(--ink-secondary);
 }
 .detail-content .md-body p { margin: 10px 0; }
-.detail-content .md-body ul,.md-body ol { padding-left: 22px; margin: 8px 0; }
+.detail-content .md-body ul,.md-body ol { padding-left: 24px; margin: 8px 0; }
 .detail-content .md-body li { margin: 4px 0; }
 .detail-content .md-body strong { color: var(--ink); font-weight: 600; }
-.detail-content .actions { margin-top: 20px; display: flex; gap: 8px; }
+.detail-content .actions { margin-top: 24px; display: flex; gap: 8px; }
 
-/* ── Utilities ── */
-.status { font-size: 13px; color: var(--ash); padding: 8px 0; }
-.error { font-size: 13px; color: var(--red); padding: 8px 0; }
-.empty-state { color: var(--ash); text-align: center; padding: 40px 20px; font-size: 13px; }
-.empty-state strong { color: var(--mute); font-weight: 500; }
+/* ── 公用 ── */
+.status { font-size: 13px; color: var(--ink-muted); padding: 6px 0; }
+.error { font-size: 13px; color: var(--red); padding: 6px 0; }
+.empty-state { color: var(--ink-muted); text-align: center; padding: 48px 20px; font-size: 14px; }
+.empty-state strong { color: var(--ink-secondary); font-weight: 500; }
 .spinner {
-  display: inline-block; width: 14px; height: 14px; border: 2px solid var(--hairline);
-  border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 6px;
+  display: inline-block; width: 14px; height: 14px; border: 2px solid var(--hairline-strong);
+  border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 6px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .panel { display: none; }
 .panel.active { display: block; }
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--stone); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: 3px; }
 </style>
 </head>
 <body>
 
 <aside class="sidebar">
   <div class="sidebar-header">
-    <h1>KB</h1>
-    <span class="count" id="entry-count">0 条目</span>
+    <h1>知识库</h1>
+    <span class="count" id="entry-count">0 条</span>
   </div>
   <div class="sidebar-search">
     <div class="search-wrap">
-      <input type="text" id="sidebar-search-input" placeholder="搜索知识库..."
+      <input type="text" id="sidebar-search-input" placeholder="搜索…"
              onkeydown="if(event.key==='Enter')doAskFromSidebar()">
-      <span class="kbd">⌘K</span>
+      <kbd>⌘K</kbd>
     </div>
   </div>
   <div class="entry-list" id="entry-list">
-    <div class="empty-state"><strong>暂无条目</strong><br>Cmd+Enter 快速录入</div>
+    <div class="empty-state"><strong>暂无条目</strong><br>切换到录入添加</div>
   </div>
 </aside>
 
 <main class="main">
   <div class="toolbar">
-    <button class="tab-btn active" onclick="switchTab('ask')">Ask</button>
-    <button class="tab-btn" onclick="switchTab('add')">Add</button>
+    <button class="tab-btn active" onclick="switchTab('ask')">问答</button>
+    <button class="tab-btn" onclick="switchTab('add')">录入</button>
     <span class="spacer"></span>
-    <span class="hint">⌃↵ 提交</span>
+    <span class="hint">Ctrl + Enter 提交</span>
   </div>
 
   <div class="main-content">
     <div id="panel-ask" class="panel active">
-      <div class="ask-input-wrap">
+      <div class="ask-card">
         <textarea id="ask-input" placeholder="输入问题，比如：omni-upgrade 怎么用？" rows="1"></textarea>
         <div class="ask-row">
-          <button class="btn btn-primary" onclick="doAsk()">Ask</button>
+          <button class="btn btn-primary" onclick="doAsk()">提问</button>
           <span class="status" id="ask-status"></span>
         </div>
       </div>
@@ -315,11 +303,11 @@ body {
 
     <div id="panel-add" class="panel">
       <div class="add-form">
-        <textarea id="add-content" placeholder="粘贴命令、脚本用法、工具说明...&#10;支持自然语言，AI 自动格式化为 Markdown"></textarea>
+        <textarea id="add-content" placeholder="粘贴命令、脚本用法、工具说明……&#10;支持自然语言，AI 自动格式化为 Markdown"></textarea>
         <div class="row">
           <input type="text" id="add-title" placeholder="标题（自动生成）">
-          <input type="text" id="add-tags" placeholder="标签（自动生成，逗号分隔）">
-          <button class="btn btn-primary" onclick="doAdd()">Add to KB</button>
+          <input type="text" id="add-tags" placeholder="标签（自动生成）">
+          <button class="btn btn-primary" onclick="doAdd()">录入</button>
         </div>
         <span class="status" id="add-status"></span>
       </div>
@@ -345,9 +333,8 @@ function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('panel-' + name).classList.add('active');
   document.querySelectorAll('.tab-btn').forEach(b => {
-    const isMatch = (name === 'ask' && b.textContent.trim() === 'Ask') ||
-                    (name === 'add' && b.textContent.trim() === 'Add');
-    if (isMatch) b.classList.add('active');
+    if ((name === 'ask' && b.textContent === '问答') || (name === 'add' && b.textContent === '录入'))
+      b.classList.add('active');
   });
 }
 
@@ -357,7 +344,7 @@ async function loadEntries(tag) {
   try {
     const resp = await fetch(API + '/list?' + params);
     const data = await resp.json();
-    document.getElementById('entry-count').textContent = data.total + ' 条目';
+    document.getElementById('entry-count').textContent = data.total + ' 条';
     renderEntryList(data.entries);
   } catch(e) {}
 }
@@ -365,7 +352,7 @@ async function loadEntries(tag) {
 function renderEntryList(entries) {
   const el = document.getElementById('entry-list');
   if (!entries.length) {
-    el.innerHTML = '<div class="empty-state"><strong>暂无条目</strong><br>切换到 Add 录入</div>';
+    el.innerHTML = '<div class="empty-state"><strong>暂无条目</strong><br>切换到录入添加</div>';
     return;
   }
   let html = '';
@@ -383,7 +370,7 @@ function renderEntryList(entries) {
 async function viewEntry(id) {
   currentEntryId = id;
   switchTab('detail');
-  document.getElementById('detail-content').innerHTML = '<div class="status"><span class="spinner"></span>Loading…</div>';
+  document.getElementById('detail-content').innerHTML = '<div class="status"><span class="spinner"></span>加载中…</div>';
   try {
     const resp = await fetch(API + '/entry/' + id);
     const e = await resp.json();
@@ -396,8 +383,8 @@ async function viewEntry(id) {
       </div>
       <div class="md-body">${marked.parse(e.content)}</div>
       <div class="actions">
-        <button class="btn btn-danger" onclick="deleteEntry(${e.id})">Delete</button>
-        <button class="btn btn-ghost" onclick="reformatEntry(${e.id})">Reformat</button>
+        <button class="btn btn-danger" onclick="deleteEntry(${e.id})">删除</button>
+        <button class="btn btn-ghost" onclick="reformatEntry(${e.id})">重新格式化</button>
       </div>`;
     document.querySelectorAll('.md-body pre code').forEach(b => hljs.highlightElement(b));
     document.querySelectorAll('.entry-item').forEach(el => el.classList.remove('active'));
@@ -409,7 +396,7 @@ async function viewEntry(id) {
 }
 
 async function deleteEntry(id) {
-  if (!confirm('确定删除条目 #' + id + '？')) return;
+  if (!confirm('确定删除 #' + id + '？')) return;
   try {
     await fetch(API + '/entry/' + id, { method: 'DELETE' });
     currentEntryId = null; switchTab('ask'); loadEntries();
@@ -418,7 +405,7 @@ async function deleteEntry(id) {
 
 async function reformatEntry(id) {
   if (!confirm('用 AI 重新格式化？')) return;
-  document.getElementById('detail-content').innerHTML = '<div class="status"><span class="spinner"></span>Reformatting…</div>';
+  document.getElementById('detail-content').innerHTML = '<div class="status"><span class="spinner"></span>格式化中…</div>';
   try {
     await fetch(API + '/entry/' + id + '/reformat', { method: 'POST' });
     viewEntry(id);
@@ -439,7 +426,7 @@ async function doAsk() {
   if (!query) return;
   const status = document.getElementById('ask-status');
   const result = document.getElementById('ask-result');
-  status.innerHTML = '<span class="spinner"></span> Searching…';
+  status.innerHTML = '<span class="spinner"></span> 检索中…';
   result.innerHTML = '';
   try {
     const resp = await fetch(API + '/ask', {
@@ -449,7 +436,7 @@ async function doAsk() {
     const data = await resp.json();
     let html = `<div class="answer-block">${marked.parse(data.answer)}</div>`;
     if (data.sources && data.sources.length) {
-      html += '<div class="sources-label">Sources</div>';
+      html += '<div class="source-label">参考条目</div>';
       data.sources.forEach(s => {
         html += `<div class="source-card" onclick="viewEntry(${s.id})">
           <div class="s-title">${esc(s.title || '条目 ' + s.id)} <span class="s-score">${(s.score*100).toFixed(0)}%</span></div>
@@ -479,14 +466,14 @@ async function doAdd() {
       body: JSON.stringify({ content, title, tags, auto_meta: true, format_md: true })
     });
     const data = await resp.json();
-    status.textContent = `Added #${data.id} — ${data.title}`;
+    status.textContent = `已录入 #${data.id} — ${data.title}`;
     document.getElementById('add-content').value = '';
     document.getElementById('add-title').value = '';
     document.getElementById('add-tags').value = '';
     loadEntries();
     setTimeout(() => viewEntry(data.id), 300);
   } catch(e) {
-    status.textContent = 'Failed: ' + e.message;
+    status.textContent = '失败: ' + e.message;
   }
 }
 
