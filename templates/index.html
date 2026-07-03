@@ -321,6 +321,9 @@ body {
 
 <script>
 const API = '/api';
+const AUTH = window.KB_TOKEN ? { 'X-API-Key': window.KB_TOKEN } : {};
+function apiHeaders() { return { 'Content-Type': 'application/json', ...AUTH }; }
+function apiCall(url, opts = {}) { return fetch(url, { ...opts, headers: { ...apiHeaders(), ...(opts.headers||{}) } }); }
 let currentTab = 'ask';
 let currentEntryId = null;
 marked.setOptions({ breaks: true, gfm: true });
@@ -342,7 +345,7 @@ async function loadEntries(tag) {
   const params = new URLSearchParams({ limit: '200' });
   if (tag) params.set('tag', tag);
   try {
-    const resp = await fetch(API + '/list?' + params);
+    const resp = await apiCall(API + '/list?' + params);
     const data = await resp.json();
     document.getElementById('entry-count').textContent = data.total + ' 条';
     renderEntryList(data.entries);
@@ -372,7 +375,7 @@ async function viewEntry(id) {
   switchTab('detail');
   document.getElementById('detail-content').innerHTML = '<div class="status"><span class="spinner"></span>加载中…</div>';
   try {
-    const resp = await fetch(API + '/entry/' + id);
+    const resp = await apiCall(API + '/entry/' + id);
     const e = await resp.json();
     document.getElementById('detail-content').innerHTML = `
       <h2>${esc(e.title || '条目 ' + e.id)}</h2>
@@ -398,7 +401,7 @@ async function viewEntry(id) {
 async function deleteEntry(id) {
   if (!confirm('确定删除 #' + id + '？')) return;
   try {
-    await fetch(API + '/entry/' + id, { method: 'DELETE' });
+    await apiCall(API + '/entry/' + id, { method: 'DELETE' });
     currentEntryId = null; switchTab('ask'); loadEntries();
   } catch(e) { alert('删除失败: ' + e.message); }
 }
@@ -407,7 +410,7 @@ async function reformatEntry(id) {
   if (!confirm('用 AI 重新格式化？')) return;
   document.getElementById('detail-content').innerHTML = '<div class="status"><span class="spinner"></span>格式化中…</div>';
   try {
-    await fetch(API + '/entry/' + id + '/reformat', { method: 'POST' });
+    await apiCall(API + '/entry/' + id + '/reformat', { method: 'POST' });
     viewEntry(id);
   } catch(e) {
     document.getElementById('detail-content').innerHTML = `<div class="error">格式化失败: ${e.message}</div>`;
@@ -429,8 +432,8 @@ async function doAsk() {
   status.innerHTML = '<span class="spinner"></span> 检索中…';
   result.innerHTML = '';
   try {
-    const resp = await fetch(API + '/ask', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
+    const resp = await apiCall(API + '/ask', {
+      method: 'POST',
       body: JSON.stringify({ query, k: 5 })
     });
     const data = await resp.json();
@@ -461,8 +464,8 @@ async function doAdd() {
   const status = document.getElementById('add-status');
   status.innerHTML = '<span class="spinner"></span> AI 正在格式化…';
   try {
-    const resp = await fetch(API + '/add', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
+    const resp = await apiCall(API + '/add', {
+      method: 'POST',
       body: JSON.stringify({ content, title, tags, auto_meta: true, format_md: true })
     });
     const data = await resp.json();

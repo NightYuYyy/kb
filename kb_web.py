@@ -65,7 +65,11 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
     async def index():
         html_path = TEMPLATE_DIR / "index.html"
         if html_path.exists():
-            return html_path.read_text(encoding="utf-8")
+            html = html_path.read_text(encoding="utf-8")
+            # 注入 auth_token 到前端 JS
+            if auth_token:
+                html = html.replace("</head>", f"<script>window.KB_TOKEN='{auth_token}';</script></head>")
+            return html
         return HTMLResponse("<h1>KB 知识库</h1><p>Web UI 模板未找到</p>")
 
     # ── REST API ─────────────────────────────────────────────────────────────
