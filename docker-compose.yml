@@ -8,4 +8,6 @@ services:
       - "8765:8765"
     volumes:
       - ./data:/app/data
+    environment:
+      - KB_AUTH_TOKEN=kb-secret-change-me
     restart: unless-stopped

@@ -5,10 +5,12 @@ kb — 个人知识库 CLI
 
 from __future__ import annotations
 
-import sys
+import json
+import os
 from pathlib import Path
 
 import typer
+import httpx
 
 from kb_core import load_kb
 
@@ -18,14 +20,56 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-# 全局配置路径，允许命令行覆盖
+# 全局配置
 _config_path = "data/config.yaml"
+_remote_url: str = ""
+_remote_token: str = ""
 
 
-def _get_kb():
-    return load_kb(_config_path)
+class RemoteKB:
+    """通过 HTTP API 访问远程知识库。"""
 
+    def __init__(self, base_url: str, token: str):
+        self.base_url = base_url.rstrip("/")
+        self.headers = {"X-API-Key": token, "Content-Type": "application/json"}
+        self._client = httpx.Client(timeout=60)
 
+    def _post(self, path: str, data: dict = None) -> dict:
+        r = self._client.post(f"{self.base_url}{path}", json=data or {}, headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+    def _get(self, path: str) -> dict:
+        r = self._client.get(f"{self.base_url}{path}", headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+    def ask(self, question: str, k: int = 5) -> str:
+        return self._post("/api/ask", {"query": question, "k": k})["answer"]
+
+    def add(self, content: str, title: str = "", tags: str = "",
+            source: str = "cli", auto_meta: bool = True, format_md: bool = True) -> dict:
+        return self._post("/api/add", {"content": content, "title": title, "tags": tags,
+                                        "format_md": format_md, "auto_meta": auto_meta})
+
+    def search(self, query: str, k: int = 5) -> list[dict]:
+        return self._post("/api/search", {"query": query, "k": k})
+
+    def get_entry(self, entry_id: int) -> dict:
+        return self._get(f"/api/entry/{entry_id}")
+
+    def list_entries(self, tag: str = "", limit: int = 50, offset: int = 0) -> list[dict]:
+        return self._get(f"/api/list?tag={tag}&limit={limit}&offset={offset}")["entries"]
+
+    def count(self, tag: str = "") -> int:
+        return self._get(f"/api/list?tag={tag}&limit=1")["total"]
+
+    def delete_entry(self, entry_id: int) -> bool:
+        self._client.delete(f"{self.base_url}/api/entry/{entry_id}", headers=self.headers)
+        return True
+
+    def reformat_entry(self, entry_id: int) -> dict:
+        return self._post(f"/api/entry/{entry_id}/reformat")
 @app.command()
 def add(
     content: str = typer.Argument(..., help="要记录的知识内容（自由文本）"),
@@ -184,13 +228,19 @@ def stats():
             typer.echo(f"最近更新: {time.strftime('%Y-%m-%d %H:%M', time.localtime(latest['updated_at']))}")
 
 
+def _get_kb():
+    if _remote_url:
+        return RemoteKB(_remote_url, _remote_token)
+    return load_kb(_config_path)
+
+
 @app.callback()
 def main(
     config: str = typer.Option("data/config.yaml", "--config", "-c", help="配置文件路径"),
+    remote: str = typer.Option("", "--remote", "-r", help="远程 KB 服务地址，如 https://kb.example.com"),
+    token: str = typer.Option("", "--token", "-k", help="远程 API token"),
 ):
-    global _config_path
+    global _config_path, _remote_url, _remote_token
     _config_path = config
-
-
-if __name__ == "__main__":
-    app()
+    _remote_url = remote or os.environ.get("KB_REMOTE_URL", "")
+    _remote_token = token or os.environ.get("KB_TOKEN", "")

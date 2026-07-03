@@ -36,6 +36,7 @@ class StorageConfig:
 class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8765
+    auth_token: str = ""
 
 
 @dataclass
@@ -66,6 +67,7 @@ class Config:
             server=ServerConfig(
                 host=server_raw.get("host", "0.0.0.0"),
                 port=server_raw.get("port", 8765),
+                auth_token=server_raw.get("auth_token", ""),
             ),
         )
 

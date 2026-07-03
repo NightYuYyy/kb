@@ -6,15 +6,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends, Header
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from kb_core import KnowledgeBase
 
 
-# ── Request/Response Models ──────────────────────────────────────────────────
+# ── Models ───────────────────────────────────────────────────────────────────
 
 class AddRequest(BaseModel):
     content: str
@@ -53,6 +52,12 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 def create_app(kb: KnowledgeBase) -> FastAPI:
     app = FastAPI(title="KB - 个人知识库", version="1.0.0")
+    auth_token = kb.config.server.auth_token
+
+    # ── Auth dependency ──
+    async def verify_auth(x_api_key: str = Header(None, alias="X-API-Key")):
+        if auth_token and x_api_key != auth_token:
+            raise HTTPException(status_code=401, detail="无效的 API Key")
 
     # ── Web UI ───────────────────────────────────────────────────────────────
 
@@ -61,23 +66,19 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
         html_path = TEMPLATE_DIR / "index.html"
         if html_path.exists():
             return html_path.read_text(encoding="utf-8")
-        return "<h1>KB 知识库</h1><p>Web UI 模板未找到</p>"
+        return HTMLResponse("<h1>KB 知识库</h1><p>Web UI 模板未找到</p>")
 
     # ── REST API ─────────────────────────────────────────────────────────────
 
-    @app.post("/api/add", response_model=AddResponse)
+    @app.post("/api/add", response_model=AddResponse, dependencies=[Depends(verify_auth)])
     async def api_add(req: AddRequest):
         result = kb.add(
-            content=req.content,
-            title=req.title,
-            tags=req.tags,
-            source="web",
-            auto_meta=req.auto_meta,
-            format_md=req.format_md,
+            content=req.content, title=req.title, tags=req.tags,
+            source="web", auto_meta=req.auto_meta, format_md=req.format_md,
         )
         return AddResponse(id=result["id"], title=result["title"], tags=result["tags"], content=result.get("content", ""))
 
-    @app.post("/api/ask", response_model=AskResponse)
+    @app.post("/api/ask", response_model=AskResponse, dependencies=[Depends(verify_auth)])
     async def api_ask(req: AskRequest):
         entries = kb.search(req.query, k=req.k)
         sources = [
@@ -90,7 +91,7 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
             answer = f"回答生成失败: {e}"
         return AskResponse(answer=answer, sources=sources)
 
-    @app.post("/api/search")
+    @app.post("/api/search", dependencies=[Depends(verify_auth)])
     async def api_search(req: SearchRequest):
         results = kb.search(req.query, k=req.k)
         return JSONResponse([
@@ -99,32 +100,27 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
             for e in results
         ])
 
-    @app.get("/api/list")
-    async def api_list(
-        tag: str = Query(""),
-        limit: int = Query(50),
-        offset: int = Query(0),
-    ):
+    @app.get("/api/list", dependencies=[Depends(verify_auth)])
+    async def api_list(tag: str = Query(""), limit: int = Query(50), offset: int = Query(0)):
         entries = kb.list_entries(tag=tag, limit=limit, offset=offset)
         total = kb.count(tag=tag)
         return JSONResponse({"total": total, "entries": entries})
 
-    @app.get("/api/entry/{entry_id}")
+    @app.get("/api/entry/{entry_id}", dependencies=[Depends(verify_auth)])
     async def api_get(entry_id: int):
         entry = kb.get_entry(entry_id)
         if not entry:
             raise HTTPException(status_code=404, detail="条目不存在")
         return JSONResponse(entry)
 
-    @app.delete("/api/entry/{entry_id}")
+    @app.delete("/api/entry/{entry_id}", dependencies=[Depends(verify_auth)])
     async def api_delete(entry_id: int):
         ok = kb.delete_entry(entry_id)
         if not ok:
             raise HTTPException(status_code=404, detail="条目不存在")
         return JSONResponse({"deleted": entry_id})
 
-
-    @app.post("/api/entry/{entry_id}/reformat")
+    @app.post("/api/entry/{entry_id}/reformat", dependencies=[Depends(verify_auth)])
     async def api_reformat(entry_id: int):
         try:
             entry = kb.reformat_entry(entry_id)
@@ -133,6 +129,7 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
         if not entry:
             raise HTTPException(status_code=404, detail="条目不存在")
         return JSONResponse(entry)
+
     return app
 
 
