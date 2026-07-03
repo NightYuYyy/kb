@@ -6,6 +6,7 @@ kb_core.py — 知识库核心引擎
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -15,6 +16,8 @@ from typing import Optional
 import numpy as np
 import yaml
 from openai import OpenAI
+
+logger = logging.getLogger("kb")
 
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -37,6 +40,7 @@ class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8765
     auth_token: str = ""
+    public_url: str = ""  # 对外访问地址（如 https://kb.example.com），用于生成 Agent 提示词
 
 
 @dataclass
@@ -68,6 +72,7 @@ class Config:
                 host=server_raw.get("host", "0.0.0.0"),
                 port=server_raw.get("port", 8765),
                 auth_token=server_raw.get("auth_token", ""),
+                public_url=str(server_raw.get("public_url", "") or "").rstrip("/"),
             ),
         )
 
@@ -220,6 +225,29 @@ def search_similar(store: KBStore, query_vec: np.ndarray, k: int = 5) -> list[di
 
 # ── AI Client ─────────────────────────────────────────────────────────────────
 
+def normalize_llm_text(text: str) -> str:
+    """修复 LLM 把整段输出写成字面 \\n 转义的缺陷。
+
+    仅当字面 \\n 很多而真实换行几乎没有时才替换，
+    避免破坏正文里合法的转义（如 printf "a\\nb"、sed 表达式）。
+    """
+    if text.count("\\n") >= 3 and text.count("\n") <= 1:
+        text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+    return text
+
+
+def strip_outer_fences(text: str) -> str:
+    """去掉包裹整个输出的 ``` 围栏（含 ```json / ```markdown 语言标注）。"""
+    text = text.strip()
+    if text.startswith("```"):
+        first_nl = text.find("\n")
+        if first_nl != -1:
+            text = text[first_nl + 1:]
+        if text.rstrip().endswith("```"):
+            text = text.rstrip()[:-3]
+    return text.strip()
+
+
 class AIClient:
     """封装硅基流动 API：embedding + LLM 问答 + Markdown 格式化。"""
 
@@ -238,52 +266,58 @@ class AIClient:
 
     def extract_meta(self, content: str) -> tuple[str, str]:
         prompt = (
-            "从以下文本提取标题（简短摘要）和标签（逗号分隔关键词）。只输出 JSON。\n"
-            "格式：{\"title\": \"...\", \"tags\": \"...\"}\n\n"
-            f"{content}\n\nJSON:"
+            "从 <content> 中的文本提取元数据，输出一个 JSON 对象：\n"
+            '{"title": "简短标题", "tags": "标签1,标签2,标签3"}\n'
+            "要求：\n"
+            "- title：10~25 字，概括主题，不带标点结尾\n"
+            "- tags：3~6 个，逗号分隔；用工具名/领域词等适中粒度（如 docker、ffmpeg、运维），"
+            "英文一律小写，与正文语言一致，不要重复 title\n"
+            "- 只输出 JSON，不要解释\n\n"
+            f"<content>\n{content[:4000]}\n</content>"
         )
-        resp = self._client.chat.completions.create(
-            model=self.config.llm_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3, max_tokens=200,
-        )
-        raw = resp.choices[0].message.content.strip()
-        # Strip optional ``` fences
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1]
-            if raw.rstrip().endswith("```"):
-                raw = raw.rstrip()[:-3]
+        messages = [{"role": "user", "content": prompt}]
         try:
-            data = json.loads(raw.strip())
-            return data.get("title", ""), data.get("tags", "")
-        except (json.JSONDecodeError, IndexError):
+            resp = self._client.chat.completions.create(
+                model=self.config.llm_model, messages=messages,
+                temperature=0.2, max_tokens=300,
+                response_format={"type": "json_object"},
+            )
+        except Exception:
+            # 模型/网关不支持 JSON mode 时退回普通模式
+            resp = self._client.chat.completions.create(
+                model=self.config.llm_model, messages=messages,
+                temperature=0.2, max_tokens=300,
+            )
+        raw = strip_outer_fences(resp.choices[0].message.content)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("extract_meta: JSON 解析失败，原始输出: %.100s", raw)
             return "", ""
+        title = normalize_llm_text(str(data.get("title", ""))).strip()
+        tags = normalize_llm_text(str(data.get("tags", ""))).strip()
+        tags = ",".join(t.strip().lower() if t.strip().isascii() else t.strip()
+                        for t in tags.split(",") if t.strip())
+        return title, tags
 
     def format_content(self, raw_text: str) -> str:
-        """用 LLM 将自由文本格式化为结构化 Markdown，自动 strip 外层代码块。"""
+        """用 LLM 将自由文本格式化为结构化 Markdown，输出做围栏/换行归一化。"""
         prompt = (
-            "将以下文本整理成结构化的 Markdown。规则：\n"
-            "- 用 ## 标题概括主题\n"
-            "- 命令/代码用 ``` 代码块，标注语言\n"
-            "- 参数说明用列表或小标题\n"
-            "- 保留所有信息，不删减\n"
-            "- 直接输出 Markdown，禁止用 ```markdown 包裹\n\n"
-            f"{raw_text}\n\nMarkdown:"
+            "把 <raw> 中的文本整理成一篇结构化的 Markdown 笔记。规则：\n"
+            "- 用 ## 小标题概括主题，内容多时用 ### 分节\n"
+            "- 命令/代码放入 ``` 围栏代码块并标注语言\n"
+            "- 参数、选项用列表说明\n"
+            "- 保留原文全部信息，不删减、不编造、不评论\n"
+            "- 换行必须是真实换行符，严禁输出字面的 \\n 转义序列\n"
+            "- 直接输出 Markdown 正文，不要用 ```markdown 包裹，不要任何解释\n\n"
+            f"<raw>\n{raw_text}\n</raw>"
         )
         resp = self._client.chat.completions.create(
             model=self.config.llm_model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3, max_tokens=2000,
+            temperature=0.3, max_tokens=4000,
         )
-        result = resp.choices[0].message.content.strip()
-        # Strip outer ``` fences if present
-        if result.startswith("```"):
-            first_nl = result.find("\n")
-            if first_nl != -1:
-                result = result[first_nl + 1:]
-            if result.rstrip().endswith("```"):
-                result = result.rstrip()[:-3].strip()
-        return result
+        return normalize_llm_text(strip_outer_fences(resp.choices[0].message.content))
 
     def ask(self, query: str, context_entries: list[dict]) -> str:
         if not context_entries:
@@ -292,7 +326,7 @@ class AIClient:
             parts = []
             for e in context_entries:
                 parts.append(
-                    f"--- 条目 {e['id']} (标题: {e['title']}) ---\n"
+                    f"--- 条目 #{e['id']} (标题: {e['title']}) ---\n"
                     f"内容: {e['content']}\n标签: {e['tags']}"
                 )
             context_text = "\n\n".join(parts)
@@ -300,19 +334,20 @@ class AIClient:
             model=self.config.llm_model,
             messages=[
                 {"role": "system", "content": (
-                    "你是一个个人知识库助手。根据以下知识库条目内容回答用户问题。"
-                    "如果知识库中有相关信息，请准确引用并给出详细说明。"
-                    "如果知识库中没有相关信息，请如实告知，不要编造。"
-                    "回答要简洁、准确、直接给出命令或步骤。"
+                    "你是一个个人知识库助手，只根据提供的知识库条目回答问题。\n"
+                    "- 回答简洁、准确，直接给出命令或步骤\n"
+                    "- 引用了哪些条目，在对应内容后标注来源，如 [#5]\n"
+                    "- 条目只部分覆盖问题时，说明哪部分来自知识库、哪部分缺失\n"
+                    "- 知识库没有相关信息就如实说明，严禁编造"
                 )},
                 {"role": "user", "content": (
-                    f"知识库内容：\n{context_text}\n\n"
-                    f"用户问题：{query}\n\n请根据知识库内容回答："
+                    f"知识库条目：\n{context_text}\n\n"
+                    f"用户问题：{query}"
                 )},
             ],
             temperature=0.3, max_tokens=2000,
         )
-        return resp.choices[0].message.content.strip()
+        return normalize_llm_text(resp.choices[0].message.content.strip())
 
 
 # ── High-Level API ────────────────────────────────────────────────────────────
@@ -331,26 +366,56 @@ class KnowledgeBase:
         if format_md and self.ai:
             try:
                 content = self.ai.format_content(content)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Markdown 格式化失败，使用原文: %s", e)
 
         if auto_meta and self.ai and (not title or not tags):
             try:
                 auto_title, auto_tags = self.ai.extract_meta(content)
                 title = title or auto_title
                 tags = tags or auto_tags
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("元数据提取失败: %s", e)
 
         embedding = None
         if self.ai:
             try:
                 embedding = self.ai.embed(content)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("嵌入生成失败，该条目将无法被语义检索: %s", e)
 
         entry_id = self.store.add(content, title, tags, source, embedding)
         return {"id": entry_id, "title": title, "tags": tags, "content": content}
+
+    def update_entry(self, entry_id: int, content: Optional[str] = None,
+                     title: Optional[str] = None, tags: Optional[str] = None,
+                     format_md: bool = False, auto_meta: bool = False) -> Optional[dict]:
+        """更新条目。content 为整体替换（重新生成嵌入），title/tags 单独可改。"""
+        entry = self.store.get(entry_id)
+        if not entry:
+            return None
+        if content:
+            if format_md and self.ai:
+                try:
+                    content = self.ai.format_content(content)
+                except Exception as e:
+                    logger.warning("Markdown 格式化失败，使用原始内容: %s", e)
+            embedding = None
+            if self.ai:
+                try:
+                    embedding = self.ai.embed(content)
+                except Exception as e:
+                    logger.warning("嵌入生成失败，该条目将无法被语义检索: %s", e)
+            self.store.update_content(entry_id, content, embedding)
+            if auto_meta and self.ai and not (title or tags):
+                try:
+                    title, tags = self.ai.extract_meta(content)
+                except Exception as e:
+                    logger.warning("元数据提取失败: %s", e)
+        if title or tags:
+            cur = self.store.get(entry_id)
+            self.store.update_title_tags(entry_id, title or cur["title"], tags or cur["tags"])
+        return self.store.get(entry_id)
 
     def reformat_entry(self, entry_id: int) -> Optional[dict]:
         """用 LLM 重新格式化已有条目为 Markdown。"""
@@ -370,10 +435,10 @@ class KnowledgeBase:
         query_vec = self.ai.embed(query)
         return search_similar(self.store, query_vec, k)
 
-    def ask(self, query: str, k: int = 5) -> str:
+    def ask(self, query: str, k: int = 5, min_score: float = 0.35) -> str:
         if not self.ai:
             return "错误：未配置 API key，无法使用问答功能。"
-        entries = self.search(query, k)
+        entries = [e for e in self.search(query, k) if e.get("score", 0) >= min_score]
         return self.ai.ask(query, entries)
 
     def list_entries(self, tag: str = "", limit: int = 50, offset: int = 0) -> list[dict]:

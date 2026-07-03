@@ -15,6 +15,17 @@ import httpx
 
 from kb_core import load_kb
 
+# kb connect 保存的远程连接（新设备接入用）
+_SAVED_REMOTE_PATH = Path.home() / ".kb" / "remote.json"
+
+
+def _load_saved_remote() -> tuple[str, str]:
+    try:
+        data = json.loads(_SAVED_REMOTE_PATH.read_text(encoding="utf-8"))
+        return data.get("url", ""), data.get("token", "")
+    except (OSError, json.JSONDecodeError):
+        return "", ""
+
 app = typer.Typer(
     name="kb",
     help="个人知识库 — 记录命令/工具/脚本用法，语义检索 + AI 问答",
@@ -36,6 +47,11 @@ class RemoteKB:
 
     def _post(self, path: str, data: dict = None) -> dict:
         r = self._client.post(f"{self.base_url}{path}", json=data or {}, headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+    def _put(self, path: str, data: dict) -> dict:
+        r = self._client.put(f"{self.base_url}{path}", json=data, headers=self.headers)
         r.raise_for_status()
         return r.json()
 
@@ -71,16 +87,30 @@ class RemoteKB:
     def reformat_entry(self, entry_id: int) -> dict:
         return self._post(f"/api/entry/{entry_id}/reformat")
 
+    def update_entry(self, entry_id: int, content=None, title=None, tags=None,
+                     format_md: bool = False, auto_meta: bool = False) -> dict:
+        return self._put(f"/api/entry/{entry_id}", {
+            "content": content or "", "title": title or "", "tags": tags or "",
+            "format_md": format_md, "auto_meta": auto_meta,
+        })
 
-def _get_kb():
-    if _remote_url:
-        return RemoteKB(_remote_url, _remote_token)
+
+def _get_local_kb():
     config_path = _config_path
     if not Path(config_path).exists() and not Path(config_path).is_absolute():
         alt = Path(__file__).parent / config_path
         if alt.exists():
             config_path = str(alt)
     return load_kb(config_path)
+
+
+def _get_kb():
+    if _remote_url:
+        return RemoteKB(_remote_url, _remote_token)
+    saved_url, saved_token = _load_saved_remote()
+    if saved_url:
+        return RemoteKB(saved_url, saved_token)
+    return _get_local_kb()
 
 
 @app.command()
@@ -190,6 +220,59 @@ def delete(
 
 
 @app.command()
+def update(
+    entry_id: int = typer.Argument(..., help="要更新的条目 ID"),
+    content: str = typer.Option("", "--content", help="新内容（整体替换原文，自动重新嵌入）"),
+    title: str = typer.Option("", "--title", "-t", help="新标题"),
+    tags: str = typer.Option("", "--tags", "-g", help="新标签（逗号分隔）"),
+    format_md: bool = typer.Option(False, "--format", help="用 AI 把新内容格式化为 Markdown"),
+):
+    """更新条目内容或元数据。"""
+    if not (content or title or tags):
+        typer.echo("✗ 至少提供 --content / --title / --tags 之一", err=True)
+        raise typer.Exit(code=1)
+    kb = _get_kb()
+    try:
+        entry = kb.update_entry(entry_id, content=content or None, title=title or None,
+                                tags=tags or None, format_md=format_md)
+    except Exception as e:
+        typer.echo(f"✗ 更新失败: {e}", err=True)
+        raise typer.Exit(code=1)
+    if not entry:
+        typer.echo(f"✗ 条目 {entry_id} 不存在", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"✓ 已更新条目 {entry_id} — {entry.get('title', '')}")
+
+
+@app.command()
+def connect(
+    url: str = typer.Argument(..., help="远程 KB 服务地址，如 https://kb.example.com"),
+    token: str = typer.Option("", "--token", "-k", help="API token（服务端 server.auth_token）"),
+):
+    """保存远程知识库连接（新设备接入）。之后本机所有 kb 命令直接走远程。"""
+    url = url.rstrip("/")
+    try:
+        total = RemoteKB(url, token).count()
+    except Exception as e:
+        typer.echo(f"✗ 连接失败: {e}", err=True)
+        raise typer.Exit(code=1)
+    _SAVED_REMOTE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _SAVED_REMOTE_PATH.write_text(
+        json.dumps({"url": url, "token": token}), encoding="utf-8")
+    typer.echo(f"✓ 已连接 {url}（{total} 条），配置保存在 {_SAVED_REMOTE_PATH}")
+
+
+@app.command()
+def disconnect():
+    """删除保存的远程连接，恢复本地模式。"""
+    if _SAVED_REMOTE_PATH.exists():
+        _SAVED_REMOTE_PATH.unlink()
+        typer.echo("✓ 已断开远程连接，恢复本地模式")
+    else:
+        typer.echo("当前没有保存的远程连接")
+
+
+@app.command()
 def reformat(
     entry_id: int = typer.Argument(..., help="要重新格式化的条目 ID"),
 ):
@@ -219,7 +302,7 @@ def serve(
 
     try:
         from kb_web import create_app
-        kb = _get_kb()
+        kb = _get_local_kb()
         app_web = create_app(kb)
         import uvicorn
         cfg = kb.config.server

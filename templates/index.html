@@ -259,7 +259,6 @@ marked.setOptions({ breaks: true, gfm: true });
 const loginPage = document.getElementById('login-page');
 const mainLayout = document.getElementById('main-layout');
 
-if (window.KB_TOKEN) { document.getElementById('login-input').value = window.KB_TOKEN; }
 if (sessionStorage.getItem('kb_token')) {
   token = sessionStorage.getItem('kb_token');
   showMain();
@@ -401,47 +400,18 @@ async function reformatEntry(id) {
   }
 }
 
-// ── 复制提示词 ──
-function copyPrompt() {
-  const kbUrl = window.location.origin;
-  const promptText = `你已连接个人知识库 API。以下是操作方式：
-
-## 查询知识库
-当需要查找命令、脚本、工具、配置、服务器信息等用法时：
-\`\`\`bash
-curl -s -X POST ${kbUrl}/api/ask \\
-  -H "Content-Type: application/json" \\
-  -H "X-API-Key: ${token}" \\
-  -d '{"query": "问题描述"}'
-\`\`\`
-返回 JSON：{"answer": "...", "sources": [...]}。直接展示 answer 内容。
-
-## 记录知识
-当开发过程中创建了工具、脚本，或需要记住运维信息（服务器、端口、路径、配置）时：
-\`\`\`bash
-curl -s -X POST ${kbUrl}/api/add \\
-  -H "Content-Type: application/json" \\
-  -H "X-API-Key: ${token}" \\
-  -d '{"content": "要记录的内容（Markdown 格式）", "format_md": true, "auto_meta": true}'
-\`\`\`
-
-## 列出条目
-\`\`\`bash
-curl -s ${kbUrl}/api/list?limit=50 -H "X-API-Key: ${token}"
-\`\`\`
-
-## 行为准则
-1. 开发过程中创建的任何工具/脚本，完成后立即调用 /api/add 记录
-2. 服务器地址、端口、部署路径、运维命令等自动整理成 Markdown 记录
-3. 不确定的命令用法和配置先查知识库（/api/ask），不要凭猜测
-4. 内容使用 Markdown 格式，代码块标注语言
-5. 尽可能记录完整信息：用法、参数、路径、示例`;
-
-  navigator.clipboard.writeText(promptText).then(() => {
+// ── 复制提示词（内容由后端 /api/prompt 统一生成）──
+async function copyPrompt() {
+  try {
+    const resp = await fetch(API + '/prompt?base=' + encodeURIComponent(window.location.origin),
+                             { headers: { 'X-API-Key': token } });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    await navigator.clipboard.writeText(data.prompt);
     showToast('✅ 已复制提示词，粘贴到其他 AI 对话中即可');
-  }).catch(() => {
+  } catch(e) {
     showToast('❌ 复制失败，请手动复制');
-  });
+  }
 }
 
 // ── Toast ──
