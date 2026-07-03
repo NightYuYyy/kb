@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 import typer
@@ -20,7 +21,6 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-# 全局配置
 _config_path = "data/config.yaml"
 _remote_url: str = ""
 _remote_token: str = ""
@@ -70,6 +70,19 @@ class RemoteKB:
 
     def reformat_entry(self, entry_id: int) -> dict:
         return self._post(f"/api/entry/{entry_id}/reformat")
+
+
+def _get_kb():
+    if _remote_url:
+        return RemoteKB(_remote_url, _remote_token)
+    config_path = _config_path
+    if not Path(config_path).exists() and not Path(config_path).is_absolute():
+        alt = Path(__file__).parent / config_path
+        if alt.exists():
+            config_path = str(alt)
+    return load_kb(config_path)
+
+
 @app.command()
 def add(
     content: str = typer.Argument(..., help="要记录的知识内容（自由文本）"),
@@ -81,9 +94,9 @@ def add(
     kb = _get_kb()
     result = kb.add(content, title, tags, auto_meta=not no_auto)
     typer.echo(f"✓ 已录入 (id={result['id']})")
-    if result["title"]:
+    if result.get("title"):
         typer.echo(f"  标题: {result['title']}")
-    if result["tags"]:
+    if result.get("tags"):
         typer.echo(f"  标签: {result['tags']}")
 
 
@@ -116,21 +129,20 @@ def search(
     except Exception as e:
         typer.echo(f"✗ 错误: {e}", err=True)
         raise typer.Exit(code=1)
-
     if not results:
         typer.echo("（未找到相关条目）")
         return
-
     for i, entry in enumerate(results, 1):
-        title = entry["title"] or f"条目 {entry['id']}"
+        title = entry.get("title") or f"条目 {entry['id']}"
         score = entry.get("score", 0)
         typer.echo(f"\n{'─' * 60}")
         typer.echo(f"[{i}] {title}  (相似度: {score:.2f})")
-        typer.echo(f"    ID: {entry['id']}  标签: {entry['tags']}")
-        typer.echo(f"    {entry['content'][:200]}{'...' if len(entry['content']) > 200 else ''}")
+        typer.echo(f"    ID: {entry['id']}  标签: {entry.get('tags', '')}")
+        content = entry.get("content", "")
+        typer.echo(f"    {content[:200]}{'...' if len(content) > 200 else ''}")
 
 
-@app.command()
+@app.command("list")
 def list_entries(
     tag: str = typer.Option("", "--tag", "-t", help="按标签筛选"),
     limit: int = typer.Option(50, "--limit", "-n", help="最大条目数"),
@@ -141,9 +153,9 @@ def list_entries(
     total = kb.count(tag=tag)
     typer.echo(f"共 {total} 条" + (f"（筛选: {tag}）" if tag else ""))
     for e in entries:
-        title = e["title"] or f"条目 {e['id']}"
+        title = e.get("title") or f"条目 {e['id']}"
         typer.echo(f"  [{e['id']}] {title}")
-        typer.echo(f"      标签: {e['tags']}")
+        typer.echo(f"      标签: {e.get('tags', '')}")
 
 
 @app.command()
@@ -157,9 +169,9 @@ def show(
         typer.echo(f"✗ 条目 {entry_id} 不存在", err=True)
         raise typer.Exit(code=1)
     typer.echo(f"ID: {entry['id']}")
-    typer.echo(f"标题: {entry['title']}")
-    typer.echo(f"标签: {entry['tags']}")
-    typer.echo(f"来源: {entry['source']}")
+    typer.echo(f"标题: {entry.get('title', '')}")
+    typer.echo(f"标签: {entry.get('tags', '')}")
+    typer.echo(f"来源: {entry.get('source', '')}")
     typer.echo(f"内容:\n{entry['content']}")
 
 
@@ -189,7 +201,7 @@ def reformat(
         if not entry:
             typer.echo(f"✗ 条目 {entry_id} 不存在", err=True)
             raise typer.Exit(code=1)
-        typer.echo(f"✓ 已格式化条目 {entry_id} — {entry['title']}")
+        typer.echo(f"✓ 已格式化条目 {entry_id} — {entry.get('title', '')}")
     except Exception as e:
         typer.echo(f"✗ 格式化失败: {e}", err=True)
         raise typer.Exit(code=1)
@@ -201,17 +213,25 @@ def serve(
     port: int = typer.Option(0, "--port", "-p", help="监听端口"),
 ):
     """启动 Web UI 和 REST API 服务。"""
-    from kb_web import create_app
+    if _remote_url:
+        typer.echo("✗ serve 只能在本地使用，不能连接远程服务", err=True)
+        raise typer.Exit(code=1)
 
-    kb = _get_kb()
-    app_web = create_app(kb)
-    import uvicorn
-
-    cfg = kb.config.server
-    h = host or cfg.host
-    p = port or cfg.port
-    typer.echo(f"🚀 知识库 Web 服务启动: http://{h}:{p}")
-    uvicorn.run(app_web, host=h, port=p, log_level="info")
+    try:
+        from kb_web import create_app
+        kb = _get_kb()
+        app_web = create_app(kb)
+        import uvicorn
+        cfg = kb.config.server
+        h = host or cfg.host
+        p = port or cfg.port
+        typer.echo(f"🚀 知识库 Web 服务启动: http://{h}:{p}")
+        uvicorn.run(app_web, host=h, port=p, log_level="info")
+    except typer.Exit:
+        raise
+    except Exception as e:
+        typer.echo(f"✗ 启动失败: {e}", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -223,24 +243,23 @@ def stats():
     if total > 0:
         entries = kb.list_entries(limit=1)
         if entries:
-            import time
             latest = entries[0]
-            typer.echo(f"最近更新: {time.strftime('%Y-%m-%d %H:%M', time.localtime(latest['updated_at']))}")
-
-
-def _get_kb():
-    if _remote_url:
-        return RemoteKB(_remote_url, _remote_token)
-    return load_kb(_config_path)
+            ts = latest.get("updated_at", 0)
+            if ts:
+                typer.echo(f"最近更新: {time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))}")
 
 
 @app.callback()
 def main(
     config: str = typer.Option("data/config.yaml", "--config", "-c", help="配置文件路径"),
-    remote: str = typer.Option("", "--remote", "-r", help="远程 KB 服务地址，如 https://kb.example.com"),
+    remote: str = typer.Option("", "--remote", "-r", help="远程 KB 服务地址"),
     token: str = typer.Option("", "--token", "-k", help="远程 API token"),
 ):
     global _config_path, _remote_url, _remote_token
     _config_path = config
     _remote_url = remote or os.environ.get("KB_REMOTE_URL", "")
     _remote_token = token or os.environ.get("KB_TOKEN", "")
+
+
+if __name__ == "__main__":
+    app()
