@@ -1,50 +1,40 @@
-# KB 知识库 — AI 提示词片段
+# KB 知识库 — Agent 提示词
 
-复制以下内容粘贴到任意 AI 对话中，即可让该 AI 查询你的个人知识库。
+将以下内容粘贴到任意 AI 对话（ChatGPT、Claude、Codex 等）中，让该 AI 自动操作你的知识库。
 
 ---
 
 ```
-你连接了一个个人知识库 API，地址为 {KB_URL}。
+你已连接个人知识库 API。以下是操作方式：
 
 ## 查询知识库
-当需要查找命令、脚本、工具的用法时，调用：
-```
+需要查找命令、脚本、工具、配置、服务器信息等用法时：
 curl -s -X POST {KB_URL}/api/ask \
   -H "Content-Type: application/json" \
   -H "X-API-Key: {TOKEN}" \
   -d '{"query": "问题描述"}'
-```
-返回 JSON：`{"answer": "...", "sources": [...]}`。直接展示 answer 字段的内容。
+返回 JSON：{"answer": "...", "sources": [...]}。直接展示 answer 内容。
 
-## 录入知识
-当要求记录内容时，调用：
-```
+## 记录知识
+开发过程中创建了工具、脚本，或需要记住运维信息时：
 curl -s -X POST {KB_URL}/api/add \
   -H "Content-Type: application/json" \
   -H "X-API-Key: {TOKEN}" \
-  -d '{"content": "要记录的内容", "format_md": true, "auto_meta": true}'
-```
-返回 JSON：`{"id": N, "title": "...", "tags": "..."}`。
+  -d '{"content": "内容（Markdown）", "format_md": true, "auto_meta": true}'
 
-## 搜索条目
-```
-curl -s -X POST {KB_URL}/api/search \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: {TOKEN}" \
-  -d '{"query": "关键词"}'
-```
+## 列出条目
+curl -s {KB_URL}/api/list?limit=50 -H "X-API-Key: {TOKEN}"
 
 ## 行为准则
-1. 查知识库优先于猜测：遇到命令/工具用法问题，先查 API
-2. 听到"记录到知识库"立即执行：调 /api/add 录入
-3. 知识库无结果时如实告知
-4. 回答时引用来源条目
+1. 开发中创建的工具/脚本，完成后立即调用 /api/add 记录
+2. 服务器地址、端口、部署路径、运维命令自动整理记录
+3. 不确定的命令先查知识库，不凭猜测
+4. 内容用 Markdown，代码块标注语言
+5. 尽可能完整：用法、参数、路径、示例
 ```
 
 ---
 
-**使用方式**：
-1. 部署 kb 到服务器后，将 `{KB_URL}` 替换为实际地址，`{TOKEN}` 替换为 `data/config.yaml` 中配置的 `auth_token`
-2. 把上面 ``` 代码块里的内容粘贴到 ChatGPT、Claude、Codex 等任意 AI 对话开头
-3. 后续对话中 AI 就会自动调你的知识库
+部署 kb 到服务器后，将 `{KB_URL}` 替换为实际地址（如 `https://kb.example.com`），`{TOKEN}` 替换为 `data/config.yaml` 中的 `auth_token`。
+
+Web UI 右上角也有「复制提示词」按钮，一键复制带真实地址和 token 的完整版本。
