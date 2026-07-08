@@ -13,7 +13,7 @@ from pathlib import Path
 import typer
 import httpx
 
-from kb_core import load_kb
+from kb_core import DuplicateEntryError, load_kb
 
 # kb connect 保存的远程连接（新设备接入用）
 _SAVED_REMOTE_PATH = Path.home() / ".kb" / "remote.json"
@@ -64,9 +64,11 @@ class RemoteKB:
         return self._post("/api/ask", {"query": question, "k": k})["answer"]
 
     def add(self, content: str, title: str = "", tags: str = "",
-            source: str = "cli", auto_meta: bool = True, format_md: bool = True) -> dict:
+            source: str = "cli", auto_meta: bool = True, format_md: bool = True,
+            force: bool = False) -> dict:
         return self._post("/api/add", {"content": content, "title": title, "tags": tags,
-                                        "format_md": format_md, "auto_meta": auto_meta})
+                                        "format_md": format_md, "auto_meta": auto_meta,
+                                        "force": force})
 
     def search(self, query: str, k: int = 5) -> list[dict]:
         return self._post("/api/search", {"query": query, "k": k})
@@ -113,16 +115,40 @@ def _get_kb():
     return _get_local_kb()
 
 
+def _print_duplicate_and_exit(similar: list[dict]):
+    """打印查重命中的相似条目并以退出码 1 结束进程。"""
+    typer.echo("✗ 发现相似条目，未写入", err=True)
+    for s in similar:
+        title = s.get("title") or f"条目 {s.get('id')}"
+        typer.echo(f"  [{s.get('id')}] {title}  (相似度: {s.get('score', 0):.2f})", err=True)
+    typer.echo("  合并到已有条目: kb update <id> --content ...", err=True)
+    typer.echo("  确属不同主题: 加 --force 强制新增", err=True)
+    raise typer.Exit(code=1)
+
+
 @app.command()
 def add(
     content: str = typer.Argument(..., help="要记录的知识内容（自由文本）"),
     title: str = typer.Option("", "--title", "-t", help="手动指定标题"),
     tags: str = typer.Option("", "--tags", "-g", help="手动指定标签（逗号分隔）"),
     no_auto: bool = typer.Option(False, "--no-auto", help="禁用 LLM 自动提取标题/标签"),
+    force: bool = typer.Option(False, "--force", help="跳过查重检测，强制新增"),
 ):
     """录入一条知识。最少只需提供内容文本，系统自动提取标题和标签。"""
     kb = _get_kb()
-    result = kb.add(content, title, tags, auto_meta=not no_auto)
+    try:
+        result = kb.add(content, title, tags, auto_meta=not no_auto, force=force)
+    except DuplicateEntryError as e:
+        _print_duplicate_and_exit(e.similar)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            try:
+                detail = e.response.json().get("detail", {})
+            except ValueError:
+                detail = {}
+            _print_duplicate_and_exit(detail.get("similar", []))
+        typer.echo(f"✗ 添加失败: {e}", err=True)
+        raise typer.Exit(code=1)
     typer.echo(f"✓ 已录入 (id={result['id']})")
     if result.get("title"):
         typer.echo(f"  标题: {result['title']}")

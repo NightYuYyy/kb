@@ -366,6 +366,14 @@ class AIClient:
 
 # ── High-Level API ────────────────────────────────────────────────────────────
 
+class DuplicateEntryError(Exception):
+    """add() 查重命中阈值时抛出，携带相似条目列表（每项为完整条目 + score）。"""
+
+    def __init__(self, similar: list[dict]):
+        self.similar = similar
+        super().__init__(f"发现 {len(similar)} 条相似条目，相似度已达查重阈值")
+
+
 class KnowledgeBase:
     """顶层 API，组合 Store 和 AI Client。"""
 
@@ -375,8 +383,14 @@ class KnowledgeBase:
         self.ai = AIClient(config.api) if config.api.api_key else None
 
     def add(self, content: str, title: str = "", tags: str = "",
-            source: str = "cli", auto_meta: bool = True, format_md: bool = True) -> dict:
-        """添加一条知识。auto_meta 提取元数据，format_md 格式化为 Markdown。"""
+            source: str = "cli", auto_meta: bool = True, format_md: bool = True,
+            force: bool = False) -> dict:
+        """添加一条知识。auto_meta 提取元数据，format_md 格式化为 Markdown。
+
+        force=False（默认）时，若新内容与已有条目的嵌入余弦相似度达到
+        `config.search.dedup_threshold`，抛出 DuplicateEntryError 并拒绝写入；
+        force=True 或未配置 AI / 嵌入生成失败时跳过查重。
+        """
         if format_md and self.ai:
             try:
                 content = self.ai.format_content(content)
@@ -397,6 +411,12 @@ class KnowledgeBase:
                 embedding = self.ai.embed(content)
             except Exception as e:
                 logger.warning("嵌入生成失败，该条目将无法被语义检索: %s", e)
+
+        if not force and self.ai is not None and embedding is not None:
+            candidates = search_similar(self.store, embedding, k=3)
+            dupes = [e for e in candidates if e.get("score", 0) >= self.config.search.dedup_threshold]
+            if dupes:
+                raise DuplicateEntryError(dupes)
 
         entry_id = self.store.add(content, title, tags, source, embedding)
         return {"id": entry_id, "title": title, "tags": tags, "content": content}
