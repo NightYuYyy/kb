@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -71,7 +72,8 @@ class Config:
             server=ServerConfig(
                 host=server_raw.get("host", "0.0.0.0"),
                 port=server_raw.get("port", 8765),
-                auth_token=server_raw.get("auth_token", ""),
+                # KB_AUTH_TOKEN 环境变量优先于配置文件（docker-compose 部署依赖此覆盖）
+                auth_token=os.environ.get("KB_AUTH_TOKEN", "") or server_raw.get("auth_token", ""),
                 public_url=str(server_raw.get("public_url", "") or "").rstrip("/"),
             ),
         )
