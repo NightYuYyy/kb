@@ -190,9 +190,17 @@ def search(
         return
     for i, entry in enumerate(results, 1):
         title = entry.get("title") or f"条目 {entry['id']}"
-        score = entry.get("score", 0)
+        vec_score = entry.get("vec_score", 0.0)
+        fts_hit = entry.get("fts_hit", False)
+        parts = []
+        if vec_score > 0:
+            parts.append(f"相似度: {vec_score:.2f}")
+        if fts_hit:
+            parts.append("关键词命中")
+        if not parts:
+            parts.append(f"相关度: {entry.get('score', 0):.3f}")
         typer.echo(f"\n{'─' * 60}")
-        typer.echo(f"[{i}] {title}  (相似度: {score:.2f})")
+        typer.echo(f"[{i}] {title}  ({', '.join(parts)})")
         typer.echo(f"    ID: {entry['id']}  标签: {entry.get('tags', '')}")
         content = entry.get("content", "")
         typer.echo(f"    {content[:200]}{'...' if len(content) > 200 else ''}")

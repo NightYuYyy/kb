@@ -211,7 +211,9 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
         results = kb.search(req.query, k=req.k)
         return JSONResponse([
             {"id": e["id"], "title": e["title"], "content": e["content"][:500],
-             "tags": e["tags"], "score": e.get("score", 0)}
+             "tags": e["tags"], "score": e.get("score", 0),
+             "vec_score": round(float(e.get("vec_score", 0.0)), 4),
+             "fts_hit": bool(e.get("fts_hit", False))}
             for e in results
         ])
 

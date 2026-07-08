@@ -12,12 +12,15 @@ import sys
 import time
 
 import numpy as np
+import pytest
+from fastapi.testclient import TestClient
 
 # 让位于 tests/ 下的用例能 import 根目录的 kb_core（python -m pytest 已把 cwd 入栈，
 # 此处再补一次以兼容直接 pytest 调用）。
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kb_core import Config, KBStore, KnowledgeBase, rrf_fuse  # noqa: E402
+from kb_web import create_app  # noqa: E402
 
 
 # ── 测试替身 ──────────────────────────────────────────────────────────────────
@@ -236,3 +239,57 @@ def test_ask_filter_semantics_at_search_level(tmp_path):
     fts_entry = next(e for e in kept if e["id"] == id_fts)
     assert vec_entry["vec_score"] >= min_score
     assert fts_entry["fts_hit"] is True
+
+
+# ── /api/search：vec_score / fts_hit 透传 ────────────────────────────────────
+
+@pytest.fixture
+def sqlite_thread_patch(monkeypatch):
+    """FastAPI TestClient 在工作线程中运行 app，KBStore 使用单一 sqlite 连接，
+    需强制 check_same_thread=False 才能跨线程访问（仅测试用，不改生产连接代码）。"""
+    orig_connect = sqlite3.connect
+
+    def patched_connect(*args, **kwargs):
+        kwargs["check_same_thread"] = False
+        return orig_connect(*args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", patched_connect)
+
+
+def _make_app(tmp_path, ai=None):
+    config = Config()
+    config.storage.db_path = str(tmp_path / "kb.db")
+    kb = KnowledgeBase(config)
+    kb.ai = ai
+    return create_app(kb), kb
+
+
+def test_api_search_items_include_vec_score_and_fts_hit(tmp_path, sqlite_thread_patch):
+    qv = np.array([1.0, 0.0], dtype=np.float32)
+    app, kb = _make_app(tmp_path, ai=FakeAI({"docker": qv}))
+    kb.store.add("docker compose 用法", "A", "docker", "cli",
+                 np.array([1.0, 0.0], dtype=np.float32))
+    client = TestClient(app)
+
+    r = client.post("/api/search", json={"query": "docker", "k": 5})
+    assert r.status_code == 200
+    items = r.json()
+    assert items
+    for item in items:
+        assert isinstance(item["vec_score"], float)
+        assert isinstance(item["fts_hit"], bool)
+        assert "score" in item  # 既有字段保持不变（RRF 融合值）
+
+
+def test_api_search_fts_only_hit_has_zero_vec_score(tmp_path, sqlite_thread_patch):
+    """无 AI（向量检索不可用）时，FTS 命中的条目 vec_score 应为 0.0 且 fts_hit 为 True。"""
+    app, kb = _make_app(tmp_path, ai=None)
+    kb.store.add("安装 omni-upgrade.nu 到 nushell 配置目录", "标题", "")
+    client = TestClient(app)
+
+    r = client.post("/api/search", json={"query": "omni", "k": 5})
+    assert r.status_code == 200
+    items = r.json()
+    assert items
+    assert items[0]["vec_score"] == 0.0
+    assert items[0]["fts_hit"] is True
