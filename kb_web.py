@@ -174,7 +174,10 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
     async def api_ask(req: AskRequest):
         if not kb.ai:
             raise HTTPException(status_code=503, detail="服务端未配置 api.api_key，问答功能不可用")
-        entries = [e for e in kb.search(req.query, k=req.k) if e.get("score", 0) >= 0.35]
+        entries = [
+            e for e in kb.search(req.query, k=req.k)
+            if e.get("vec_score", 0.0) >= kb.config.search.min_score or e.get("fts_hit", False)
+        ]
         sources = [
             {"id": e["id"], "title": e["title"], "content": e["content"][:500], "score": e.get("score", 0)}
             for e in entries

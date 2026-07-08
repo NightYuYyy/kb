@@ -118,6 +118,56 @@ class KBStore:
         """)
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_entries_tags ON entries(tags)")
         self._conn.commit()
+        self._init_fts()
+
+    def _init_fts(self):
+        """建立 FTS5 全文索引（trigram 分词，外部内容表）及三个同步触发器。
+
+        - 建表前先查 sqlite_master 判断是否已存在；仅首次创建时 rebuild，
+          让升级前已存在的旧行进入索引。
+        - trigram 分词支持子串匹配（工具名、错误码等精确 token），但要求 ≥3 字符。
+        - 环境不支持 FTS5/trigram 时降级：fts_enabled=False，检索退回纯向量路径。
+        """
+        try:
+            exists = self._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='entries_fts'"
+            ).fetchone()
+            if exists is None:
+                self._conn.execute("""
+                    CREATE VIRTUAL TABLE entries_fts USING fts5(
+                        content, title, tags,
+                        content='entries', content_rowid='id', tokenize='trigram'
+                    )
+                """)
+                self._conn.execute("""
+                    CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
+                        INSERT INTO entries_fts(rowid, content, title, tags)
+                        VALUES (new.id, new.content, new.title, new.tags);
+                    END
+                """)
+                self._conn.execute("""
+                    CREATE TRIGGER entries_ad AFTER DELETE ON entries BEGIN
+                        INSERT INTO entries_fts(entries_fts, rowid, content, title, tags)
+                        VALUES ('delete', old.id, old.content, old.title, old.tags);
+                    END
+                """)
+                self._conn.execute("""
+                    CREATE TRIGGER entries_au AFTER UPDATE ON entries BEGIN
+                        INSERT INTO entries_fts(entries_fts, rowid, content, title, tags)
+                        VALUES ('delete', old.id, old.content, old.title, old.tags);
+                        INSERT INTO entries_fts(rowid, content, title, tags)
+                        VALUES (new.id, new.content, new.title, new.tags);
+                    END
+                """)
+                # 首次创建：把已存在的旧行灌入索引
+                self._conn.execute("INSERT INTO entries_fts(entries_fts) VALUES('rebuild')")
+                self._conn.commit()
+            self.fts_enabled = True
+        except sqlite3.OperationalError as e:
+            self.fts_enabled = False
+            logger.warning(
+                "FTS5 全文索引不可用（SQLite 缺少 trigram 分词支持），检索退回纯向量: %s", e
+            )
 
     def add(self, content: str, title: str = "", tags: str = "",
             source: str = "cli", embedding: Optional[np.ndarray] = None) -> int:
@@ -199,6 +249,28 @@ class KBStore:
                 result.append((rid, np.frombuffer(emb, dtype=np.float32)))
         return result
 
+    def fts_search(self, query: str, k: int = 5) -> list[int]:
+        """FTS5 关键词检索，返回按 bm25 相关度（ORDER BY rank）排序的条目 id 列表。
+
+        查询构建：按空白切词，每个 token 内部双引号翻倍后用双引号包裹，用 OR 连接。
+        任何 FTS 查询错误一律返回 []（绝不抛出）。注意 trigram 需 ≥3 字符才能命中。
+        """
+        if not self.fts_enabled:
+            return []
+        tokens = query.split()
+        if not tokens:
+            return []
+        match_expr = " OR ".join('"' + t.replace('"', '""') + '"' for t in tokens)
+        try:
+            rows = self._conn.execute(
+                "SELECT rowid FROM entries_fts WHERE entries_fts MATCH ? "
+                "ORDER BY rank LIMIT ?",
+                (match_expr, k),
+            ).fetchall()
+        except sqlite3.Error:
+            return []
+        return [r[0] for r in rows]
+
     @staticmethod
     def _row_to_dict(row) -> Optional[dict]:
         if row is None:
@@ -235,6 +307,22 @@ def search_similar(store: KBStore, query_vec: np.ndarray, k: int = 5) -> list[di
             entry["score"] = float(scores[idx])
             results.append(entry)
     return results
+
+
+def rrf_fuse(vec_ids: list[int], fts_ids: list[int],
+             k: int = 5, rrf_k: int = 60) -> list[tuple[int, float]]:
+    """倒数排名融合（Reciprocal Rank Fusion）。
+
+    对两个已排序的 id 列表，按 score = Σ 1/(rrf_k + rank) 累加（rank 从 1 起），
+    同时出现在两个列表中的条目得分更高；按得分降序取前 k，
+    返回 (entry_id, rrf_score) 列表。
+    """
+    scores: dict[int, float] = {}
+    for ranked in (vec_ids, fts_ids):
+        for rank, eid in enumerate(ranked, start=1):
+            scores[eid] = scores.get(eid, 0.0) + 1.0 / (rrf_k + rank)
+    ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    return ordered[:k]
 
 
 # ── AI Client ─────────────────────────────────────────────────────────────────
@@ -444,15 +532,49 @@ class KnowledgeBase:
         return self.store.get(entry_id)
 
     def search(self, query: str, k: int = 5) -> list[dict]:
-        if not self.ai:
-            return []
-        query_vec = self.ai.embed(query)
-        return search_similar(self.store, query_vec, k)
+        """混合检索：向量语义 + FTS5 关键词，RRF 融合排序。
 
-    def ask(self, query: str, k: int = 5, min_score: float = 0.35) -> str:
+        - 有 API key（self.ai）时走向量路径；FTS 索引可用时走关键词路径。
+        - 两路结果用 RRF 融合，返回条目带 score(RRF 融合分)、vec_score(余弦相似度,
+          不在向量结果中时为 0.0)、fts_hit(bool)。
+        - 无 API key 时退化为纯 FTS（无需 key 也能检索）；两者皆不可用时返回 []。
+        """
+        vec_score_map: dict[int, float] = {}
+        vec_ids: list[int] = []
+        if self.ai:
+            try:
+                query_vec = self.ai.embed(query)
+                for e in search_similar(self.store, query_vec, k):
+                    vec_score_map[e["id"]] = e["score"]
+                    vec_ids.append(e["id"])
+            except Exception as e:
+                logger.warning("向量检索失败，本次退回纯关键词检索: %s", e)
+
+        fts_ids = self.store.fts_search(query, k)
+        fts_id_set = set(fts_ids)
+
+        if not vec_ids and not fts_ids:
+            return []
+
+        results: list[dict] = []
+        for eid, rrf_score in rrf_fuse(vec_ids, fts_ids, k):
+            entry = self.store.get(eid)
+            if entry is None:
+                continue
+            entry["score"] = rrf_score
+            entry["vec_score"] = vec_score_map.get(eid, 0.0)
+            entry["fts_hit"] = eid in fts_id_set
+            results.append(entry)
+        return results
+
+    def ask(self, query: str, k: int = 5) -> str:
         if not self.ai:
             return "错误：未配置 API key，无法使用问答功能。"
-        entries = [e for e in self.search(query, k) if e.get("score", 0) >= min_score]
+        min_score = self.config.search.min_score
+        entries = [
+            e for e in self.search(query, k)
+            if e.get("vec_score", 0.0) >= min_score or e.get("fts_hit", False)
+        ]
         return self.ai.ask(query, entries)
 
     def list_entries(self, tag: str = "", limit: int = 50, offset: int = 0) -> list[dict]:
