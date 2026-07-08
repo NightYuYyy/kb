@@ -37,6 +37,12 @@ class StorageConfig:
 
 
 @dataclass
+class SearchConfig:
+    min_score: float = 0.35        # ask 检索纳入上下文的最低相似度
+    dedup_threshold: float = 0.85  # add 查重阈值,相似度 ≥ 此值拒绝写入
+
+
+@dataclass
 class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8765
@@ -49,6 +55,7 @@ class Config:
     api: ApiConfig = field(default_factory=ApiConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
 
     @classmethod
     def load(cls, path: str = "data/config.yaml") -> "Config":
@@ -61,6 +68,7 @@ class Config:
         api_raw = raw.get("api", {})
         storage_raw = raw.get("storage", {})
         server_raw = raw.get("server", {})
+        search_raw = raw.get("search", {})
         return cls(
             api=ApiConfig(
                 base_url=api_raw.get("base_url", "https://api.siliconflow.cn/v1"),
@@ -75,6 +83,10 @@ class Config:
                 # KB_AUTH_TOKEN 环境变量优先于配置文件（docker-compose 部署依赖此覆盖）
                 auth_token=os.environ.get("KB_AUTH_TOKEN", "") or server_raw.get("auth_token", ""),
                 public_url=str(server_raw.get("public_url", "") or "").rstrip("/"),
+            ),
+            search=SearchConfig(
+                min_score=float(search_raw.get("min_score", 0.35)),
+                dedup_threshold=float(search_raw.get("dedup_threshold", 0.85)),
             ),
         )
 
