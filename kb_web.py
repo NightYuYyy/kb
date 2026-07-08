@@ -74,7 +74,7 @@ curl -s "{KB_URL}/api/list?limit=1" -H "X-API-Key: {TOKEN}"
 === KB 技能定义（从下一行起完整保存）===
 ---
 name: kb
-description: 个人知识库（远程 API）。查询命令/脚本/服务器/运维信息时使用；仅在用户明确要求时记录。用户说"查知识库/记到知识库/kb 查"或遇到不确定的命令配置时触发。
+description: 个人知识库（远程 API）。查询已记录的任何信息时使用——技术类如命令、脚本、服务器、配置，也包括事实、决定、偏好、笔记等非技术类信息；仅在用户明确要求时记录。用户说"查知识库/记到知识库/kb 查"或遇到不确定的信息时触发。
 ---
 
 # kb — 个人知识库
@@ -83,7 +83,7 @@ description: 个人知识库（远程 API）。查询命令/脚本/服务器/运
 - 认证：所有请求带请求头 `X-API-Key: {TOKEN}`
 
 ## 查询（自动）
-遇到命令用法、脚本、服务器/部署信息、工具配置等问题，先查知识库再回答，不凭猜测：
+遇到可能之前记录过的问题，先查知识库再回答，不凭猜测——技术类如命令用法、脚本、服务器/部署信息、工具配置，也包括事实、决定、偏好、笔记等非技术类信息：
 ```bash
 curl -s -X POST {KB_URL}/api/ask \\
   -H "Content-Type: application/json" -H "X-API-Key: {TOKEN}" \\
@@ -101,6 +101,7 @@ curl -s -X POST {KB_URL}/api/add \\
   -H "Content-Type: application/json" -H "X-API-Key: {TOKEN}" \\
   -d '{"content": "要记录的内容（Markdown）", "format_md": true, "auto_meta": true}'
 ```
+服务端也会自动查重：若返回 HTTP 409，说明已存在相似条目，响应体 detail.similar 列出候选条目（含 id、title、score、content 片段）。此时改走第 2 步，GET 拿到最相似条目后 PUT /api/entry/<id> 合并，不要重复新增；只有确认是完全不同的主题时，才在请求体加 "force": true 重新提交以强制新增。
 
 2. 已有同主题条目 → 更新而不是新增。先 GET {KB_URL}/api/entry/<id> 拿到原文，把新信息合并进去（保留仍然有效的旧内容，改写过时的部分），整体替换：
 ```bash
