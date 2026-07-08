@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, Query, Depends, Header
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from kb_core import KnowledgeBase
+from kb_core import DuplicateEntryError, KnowledgeBase
 
 
 # ── Models ───────────────────────────────────────────────────────────────────
@@ -21,6 +21,7 @@ class AddRequest(BaseModel):
     tags: str = ""
     auto_meta: bool = True
     format_md: bool = True
+    force: bool = False
 
 
 class AddResponse(BaseModel):
@@ -158,10 +159,26 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
 
     @app.post("/api/add", response_model=AddResponse, dependencies=[Depends(verify_auth)])
     async def api_add(req: AddRequest):
-        result = kb.add(
-            content=req.content, title=req.title, tags=req.tags,
-            source="web", auto_meta=req.auto_meta, format_md=req.format_md,
-        )
+        try:
+            result = kb.add(
+                content=req.content, title=req.title, tags=req.tags,
+                source="web", auto_meta=req.auto_meta, format_md=req.format_md,
+                force=req.force,
+            )
+        except DuplicateEntryError as e:
+            raise HTTPException(status_code=409, detail={
+                "error": "duplicate",
+                "message": "存在相似条目：请先 GET 对应条目，合并后用 PUT /api/entry/<id> 更新；确属不同主题时才用 force=true 强制新增",
+                "similar": [
+                    {
+                        "id": s["id"],
+                        "title": s.get("title", ""),
+                        "score": round(float(s.get("score", 0)), 2),
+                        "content": s.get("content", "")[:300],
+                    }
+                    for s in e.similar
+                ],
+            })
         return AddResponse(id=result["id"], title=result["title"], tags=result["tags"], content=result.get("content", ""))
 
     @app.get("/api/prompt", dependencies=[Depends(verify_auth)])
