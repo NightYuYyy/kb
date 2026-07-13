@@ -187,6 +187,27 @@ body {
 .toast.show { opacity: 1; }
 .toast.success { border-color: var(--green); }
 
+/* ── 手动复制弹窗 ── */
+.copy-modal {
+  position: fixed; inset: 0; z-index: 300; display: none; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(0,0,0,0.68);
+}
+.copy-modal.show { display: flex; }
+.copy-dialog {
+  width: min(720px, 100%); padding: 20px; border-radius: var(--radius-lg);
+  background: var(--surface); border: 1px solid var(--hairline-strong);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+}
+.copy-dialog h2 { margin: 0 0 8px; font-size: 17px; }
+.copy-dialog p { margin: 0 0 12px; color: var(--ink-muted); font-size: 13px; }
+.copy-dialog textarea {
+  width: 100%; height: 320px; box-sizing: border-box; resize: vertical; padding: 12px;
+  border-radius: var(--radius-md); border: 1px solid var(--hairline-strong);
+  background: var(--canvas); color: var(--ink); font: 12px/1.55 var(--font-mono); outline: none;
+}
+.copy-dialog textarea:focus { border-color: var(--primary); }
+.copy-dialog .actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+
 /* ── 公用 ── */
 .status { font-size: 13px; color: var(--ink-muted); padding: 6px 0; }
 .error { font-size: 13px; color: var(--red); padding: 6px 0; }
@@ -233,7 +254,7 @@ body {
 
   <main class="main">
     <div class="toolbar">
-      <button class="btn btn-primary" onclick="copyPrompt()">📋 复制提示词</button>
+      <button class="btn btn-primary" id="copy-prompt-button" onclick="copyPrompt()">📋 复制提示词</button>
       <span class="spacer"></span>
       <button class="btn btn-logout" onclick="doLogout()">退出</button>
     </div>
@@ -246,6 +267,15 @@ body {
   </main>
 </div>
 
+<div class="copy-modal" id="manual-copy-modal" role="dialog" aria-modal="true" aria-labelledby="manual-copy-title" aria-describedby="manual-copy-help" onclick="if(event.target===this)closeManualCopy()">
+  <div class="copy-dialog">
+    <h2 id="manual-copy-title">手动复制提示词</h2>
+    <p id="manual-copy-help">浏览器禁止自动复制。内容已全选，请按 Ctrl+C（Mac 按 ⌘C），然后关闭弹窗。</p>
+    <textarea id="manual-copy-text" readonly spellcheck="false"></textarea>
+    <div class="actions"><button class="btn btn-ghost" onclick="closeManualCopy()">关闭</button></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -253,6 +283,10 @@ const API = '/api';
 let token = '';
 let currentEntryId = null;
 let allEntries = [];
+let promptCache = '';
+let authGeneration = 0;
+let promptPromise = null;
+let manualCopyOpener = null;
 marked.setOptions({ breaks: true, gfm: true });
 
 // ── 登录 ──
@@ -274,6 +308,9 @@ async function doLogin() {
     const resp = await fetch(API + '/list?limit=1', { headers: { 'X-API-Key': key } });
     if (resp.ok) {
       token = key;
+      authGeneration += 1;
+      promptCache = '';
+      promptPromise = null;
       sessionStorage.setItem('kb_token', token);
       errEl.style.display = 'none';
       showMain();
@@ -289,13 +326,20 @@ function showMain() {
   loginPage.style.display = 'none';
   mainLayout.classList.add('active');
   loadEntries();
+  preloadPrompt();
 }
 
 function doLogout() {
   sessionStorage.removeItem('kb_token');
   token = '';
+  authGeneration += 1;
   allEntries = [];
   currentEntryId = null;
+  promptCache = '';
+  promptPromise = null;
+  manualCopyOpener = null;
+  document.getElementById('manual-copy-modal').classList.remove('show');
+  mainLayout.inert = false;
   mainLayout.classList.remove('active');
   loginPage.style.display = 'flex';
   document.getElementById('login-input').value = '';
@@ -434,17 +478,83 @@ async function copyText(text) {
   }
 }
 
-async function copyPrompt() {
+async function fetchPrompt() {
+  const resp = await fetch(API + '/prompt?base=' + encodeURIComponent(window.location.origin),
+                           { headers: { 'X-API-Key': token } });
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  const data = await resp.json();
+  if (typeof data.prompt !== 'string' || !data.prompt) throw new Error('提示词响应格式错误');
+  return data.prompt;
+}
+
+function loadPrompt() {
+  if (promptCache) return Promise.resolve(promptCache);
+  if (promptPromise) return promptPromise;
+
+  const requestToken = token;
+  const requestGeneration = authGeneration;
+  const request = fetchPrompt()
+    .then(prompt => {
+      if (token === requestToken && authGeneration === requestGeneration) promptCache = prompt;
+      return prompt;
+    })
+    .finally(() => {
+      if (promptPromise === request) promptPromise = null;
+    });
+  promptPromise = request;
+  return request;
+}
+
+async function preloadPrompt() {
   try {
-    const resp = await fetch(API + '/prompt?base=' + encodeURIComponent(window.location.origin),
-                             { headers: { 'X-API-Key': token } });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    await copyText(data.prompt);
+    await loadPrompt();
+  } catch (e) {
+    console.warn('预加载提示词失败', e);
+  }
+}
+
+function showManualCopy(text) {
+  const modal = document.getElementById('manual-copy-modal');
+  const textarea = document.getElementById('manual-copy-text');
+  manualCopyOpener = document.activeElement;
+  textarea.value = text;
+  mainLayout.inert = true;
+  modal.classList.add('show');
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+}
+
+function closeManualCopy() {
+  const opener = manualCopyOpener;
+  manualCopyOpener = null;
+  document.getElementById('manual-copy-modal').classList.remove('show');
+  mainLayout.inert = false;
+  if (opener?.isConnected) opener.focus();
+  else document.getElementById('copy-prompt-button').focus();
+}
+
+async function copyPrompt() {
+  let prompt = promptCache;
+  const requestToken = token;
+  const requestGeneration = authGeneration;
+  try {
+    if (!prompt) {
+      prompt = await loadPrompt();
+      if (token !== requestToken || authGeneration !== requestGeneration) return;
+    }
+    await copyText(prompt);
+    if (token !== requestToken || authGeneration !== requestGeneration) return;
     showToast('✅ 已复制提示词，粘贴到其他 AI 对话中即可');
   } catch(e) {
+    if (token !== requestToken || authGeneration !== requestGeneration) return;
     console.error('复制提示词失败', e);
-    showToast('❌ 复制失败，请手动复制');
+    if (prompt) {
+      showManualCopy(prompt);
+      showToast('⚠️ 浏览器禁止自动复制，请按 Ctrl+C');
+    } else {
+      showToast('❌ 获取提示词失败');
+    }
   }
 }
 
@@ -470,6 +580,10 @@ document.addEventListener('keydown', e => {
     document.getElementById('sidebar-search-input').focus();
   }
   if (e.key === 'Escape') {
+    if (document.getElementById('manual-copy-modal').classList.contains('show')) {
+      closeManualCopy();
+      return;
+    }
     document.getElementById('sidebar-search-input').value = '';
     doSearch();
   }
