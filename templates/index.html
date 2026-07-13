@@ -401,15 +401,49 @@ async function reformatEntry(id) {
 }
 
 // ── 复制提示词（内容由后端 /api/prompt 统一生成）──
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch (e) {
+    // 浏览器拒绝异步剪贴板访问时，继续尝试兼容旧版复制。
+  }
+
+  const textarea = document.createElement('textarea');
+  const previousFocus = document.activeElement;
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  try {
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    if (!document.execCommand('copy')) throw new Error('浏览器拒绝复制');
+  } finally {
+    textarea.remove();
+    try {
+      previousFocus?.focus();
+    } catch (e) {
+      // 恢复焦点失败不应把已成功的复制标记为失败。
+    }
+  }
+}
+
 async function copyPrompt() {
   try {
     const resp = await fetch(API + '/prompt?base=' + encodeURIComponent(window.location.origin),
                              { headers: { 'X-API-Key': token } });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
-    await navigator.clipboard.writeText(data.prompt);
+    await copyText(data.prompt);
     showToast('✅ 已复制提示词，粘贴到其他 AI 对话中即可');
   } catch(e) {
+    console.error('复制提示词失败', e);
     showToast('❌ 复制失败，请手动复制');
   }
 }
