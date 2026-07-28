@@ -55,4 +55,8 @@ jobs:
             IMAGE=ghcr.io/${{ github.repository }}:latest
             IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
             docker pull "$IMAGE"
-            docker restart kb
+            docker stop kb && docker rm kb
+            docker run -d --name kb -p 8765:8765 \
+              -v /home/arch/kb/data:/app/data \
+              --restart unless-stopped \
+              "$IMAGE"
