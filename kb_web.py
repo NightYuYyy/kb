@@ -266,45 +266,39 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
 
     # ── Version ───────────────────────────────────────────────────────────
 
-    def _read_version() -> str:
+    APP_VERSION = "1.0.0"
+
+    def _read_commit() -> str:
         try:
-            v = Path("/app/VERSION").read_text().strip()
-            return v[:8]
+            return Path("/app/VERSION").read_text().strip()[:8]
         except Exception:
-            return "unknown"
+            return "00000000"
 
     @app.get("/api/version")
     async def api_version():
-        """返回当前版本和是否有更新。"""
-        import subprocess
-        current = _read_version()
+        """返回版本信息：app 版本号、commit SHA、是否有更新。"""
+        import subprocess, urllib.request, json as _json
+        commit = _read_commit()
         has_update = False
         latest_sha = ""
         try:
-            # 通过 ghcr.io API 检查 latest 镜像的 digest
-            result = subprocess.run(
-                ["docker", "pull", "ghcr.io/nightyuyyy/kb:latest"],
-                capture_output=True, text=True, timeout=30,
-            )
-            if "Downloaded newer image" in result.stdout or "Downloaded newer image" in result.stderr:
-                has_update = True
             # 尝试从 GitHub API 获取最新 commit
-            import urllib.request, json as _json
             req = urllib.request.Request(
                 "https://api.github.com/repos/NightYuYyy/kb/commits/master",
-                headers={"Accept": "application/vnd.github.v3+json"}
+                headers={"Accept": "application/vnd.github.v3+json"},
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = _json.loads(resp.read())
                 latest_sha = data.get("sha", "")[:8]
         except Exception:
             pass
-        if latest_sha and current != "unknown" and latest_sha != current:
+        if latest_sha and commit != "00000000" and latest_sha != commit:
             has_update = True
         return JSONResponse({
-            "version": current,
+            "app_version": APP_VERSION,
+            "commit": commit,
             "has_update": has_update,
-            "latest": latest_sha,
+            "latest_commit": latest_sha,
         })
     return app
 

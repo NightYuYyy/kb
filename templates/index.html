@@ -596,14 +596,15 @@ async function fetchVersion() {
     const resp = await fetch(API + '/version');
     const data = await resp.json();
     const el = document.getElementById('version-info');
-    let text = 'v' + data.version;
+    let text = 'v' + data.app_version;
+    el.title = '构建: ' + data.commit;
     if (data.has_update) {
-      text += ' ⬆️ 有新版本';
+      text += ' ⬆️';
       el.style.color = '#f5a623';
-      el.title = '最新: ' + data.latest + ' — 推送代码后自动部署';
+      el.title += ' — 有新版本 ' + data.latest_commit;
     } else {
       text += ' ✅';
-      el.title = '已是最新';
+      el.title += ' — 已是最新';
     }
     el.textContent = text;
   } catch(e) {
