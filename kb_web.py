@@ -266,11 +266,15 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
 
     # ── Version ───────────────────────────────────────────────────────────
 
-    APP_VERSION = "1.0.0"
+    def _read_app_version() -> str:
+        try:
+            return Path("/app/APP_VERSION").read_text().strip()
+        except Exception:
+            return "0.0.0"
 
     def _read_commit() -> str:
         try:
-            return Path("/app/VERSION").read_text().strip()[:8]
+            return Path("/app/COMMIT").read_text().strip()[:8]
         except Exception:
             return "00000000"
 
@@ -295,7 +299,7 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
         if latest_sha and commit != "00000000" and latest_sha != commit:
             has_update = True
         return JSONResponse({
-            "app_version": APP_VERSION,
+            "app_version": _read_app_version(),
             "commit": commit,
             "has_update": has_update,
             "latest_commit": latest_sha,

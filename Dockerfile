@@ -11,8 +11,9 @@ COPY kb_core.py kb_cli.py kb_web.py ./
 COPY templates/ templates/
 
 # 写入版本信息
-ARG VERSION=unknown
-RUN echo "$VERSION" > /app/VERSION
+ARG APP_VERSION=0.0.0-dev
+ARG COMMIT=unknown
+RUN echo "$APP_VERSION" > /app/APP_VERSION && echo "$COMMIT" > /app/COMMIT
 
 # 创建数据和配置目录
 RUN mkdir -p /app/data

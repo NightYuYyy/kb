@@ -14,6 +14,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+
+      - name: Compute version
+        id: version
+        run: |
+          DESC=$(git describe --tags --match 'v*' --always --dirty 2>/dev/null)
+          if echo "$DESC" | grep -qE '^v[0-9]'; then
+            # 有版本 tag：v1.0.1 或 v1.0.1-3-gxxxx → 取 1.0.1
+            APP_VERSION=$(echo "$DESC" | sed 's/^v//' | sed 's/-.*//')
+          else
+            APP_VERSION="0.0.0-dev"
+          fi
+          echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "commit=${{ github.sha }}" >> $GITHUB_OUTPUT
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -38,7 +51,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ github.sha }}
+            APP_VERSION=${{ steps.version.outputs.app_version }}
+            COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
