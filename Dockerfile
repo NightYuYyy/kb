@@ -10,6 +10,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY kb_core.py kb_cli.py kb_web.py ./
 COPY templates/ templates/
 
+# 写入版本信息
+ARG VERSION=unknown
+RUN echo "$VERSION" > /app/VERSION
+
 # 创建数据和配置目录
 RUN mkdir -p /app/data
 

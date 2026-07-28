@@ -257,6 +257,7 @@ body {
       <button class="btn btn-primary" id="copy-prompt-button" onclick="copyPrompt()">📋 复制提示词</button>
       <span class="spacer"></span>
       <button class="btn btn-logout" onclick="doLogout()">退出</button>
+      <span class="version" id="version-info" title="点击检查更新" onclick="checkUpdate()" style="cursor:pointer;font-size:11px;color:var(--ink-muted);margin-left:12px;align-self:center"></span>
     </div>
     <div class="main-content" id="main-content">
       <div class="empty-detail">
@@ -588,6 +589,33 @@ document.addEventListener('keydown', e => {
     doSearch();
   }
 });
+
+// ── 版本信息 ──
+async function fetchVersion() {
+  try {
+    const resp = await fetch(API + '/version');
+    const data = await resp.json();
+    const el = document.getElementById('version-info');
+    let text = 'v' + data.version;
+    if (data.has_update) {
+      text += ' ⬆️ 有新版本';
+      el.style.color = '#f5a623';
+      el.title = '最新: ' + data.latest + ' — 推送代码后自动部署';
+    } else {
+      text += ' ✅';
+      el.title = '已是最新';
+    }
+    el.textContent = text;
+  } catch(e) {
+    document.getElementById('version-info').textContent = '';
+  }
+}
+async function checkUpdate() {
+  const el = document.getElementById('version-info');
+  el.textContent = '⏳ 检查中…';
+  await fetchVersion();
+}
+fetchVersion();
 </script>
 </body>
 </html>

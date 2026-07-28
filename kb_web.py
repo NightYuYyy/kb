@@ -263,6 +263,49 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
             raise HTTPException(status_code=404, detail="条目不存在")
         return JSONResponse(entry)
 
+
+    # ── Version ───────────────────────────────────────────────────────────
+
+    def _read_version() -> str:
+        try:
+            v = Path("/app/VERSION").read_text().strip()
+            return v[:8]
+        except Exception:
+            return "unknown"
+
+    @app.get("/api/version")
+    async def api_version():
+        """返回当前版本和是否有更新。"""
+        import subprocess
+        current = _read_version()
+        has_update = False
+        latest_sha = ""
+        try:
+            # 通过 ghcr.io API 检查 latest 镜像的 digest
+            result = subprocess.run(
+                ["docker", "pull", "ghcr.io/nightyuyyy/kb:latest"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if "Downloaded newer image" in result.stdout or "Downloaded newer image" in result.stderr:
+                has_update = True
+            # 尝试从 GitHub API 获取最新 commit
+            import urllib.request, json as _json
+            req = urllib.request.Request(
+                "https://api.github.com/repos/NightYuYyy/kb/commits/master",
+                headers={"Accept": "application/vnd.github.v3+json"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = _json.loads(resp.read())
+                latest_sha = data.get("sha", "")[:8]
+        except Exception:
+            pass
+        if latest_sha and current != "unknown" and latest_sha != current:
+            has_update = True
+        return JSONResponse({
+            "version": current,
+            "has_update": has_update,
+            "latest": latest_sha,
+        })
     return app
 
 
