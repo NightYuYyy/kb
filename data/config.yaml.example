@@ -1,7 +1,11 @@
 api:
+  # 向量 / embedding（硅基流动）
   base_url: https://api.siliconflow.cn/v1
   api_key: sk-your-key-here
   embedding_model: BAAI/bge-m3
+  # LLM（可选独立配置，不配则复用上面 base_url/api_key）
+  # llm_base_url: https://api.deepseek.com
+  # llm_api_key: sk-your-deepseek-key
   llm_model: deepseek-ai/DeepSeek-V3
 
 storage:

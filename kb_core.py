@@ -25,11 +25,14 @@ logger = logging.getLogger("kb")
 
 @dataclass
 class ApiConfig:
+    # 向量 / embedding（硅基流动）
     base_url: str = "https://api.siliconflow.cn/v1"
     api_key: str = ""
     embedding_model: str = "BAAI/bge-m3"
+    # LLM（可独立配置，不配则复用 base_url/api_key）
+    llm_base_url: str = ""
+    llm_api_key: str = ""
     llm_model: str = "deepseek-ai/DeepSeek-V3"
-
 
 @dataclass
 class StorageConfig:
@@ -74,6 +77,8 @@ class Config:
                 base_url=api_raw.get("base_url", "https://api.siliconflow.cn/v1"),
                 api_key=api_raw.get("api_key", ""),
                 embedding_model=api_raw.get("embedding_model", "BAAI/bge-m3"),
+                llm_base_url=api_raw.get("llm_base_url", ""),
+                llm_api_key=api_raw.get("llm_api_key", ""),
                 llm_model=api_raw.get("llm_model", "deepseek-ai/DeepSeek-V3"),
             ),
             storage=StorageConfig(db_path=storage_raw.get("db_path", "data/kb.db")),
@@ -350,18 +355,74 @@ def strip_outer_fences(text: str) -> str:
     return text.strip()
 
 
+def fallback_title(content: str) -> str:
+    """从内容提取降级标题：优先取首个 # 标题行，其次首行非空文字。"""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # 取第一个 Markdown 标题
+        if stripped.startswith("#"):
+            # 去掉 # 前缀和空格
+            title = stripped.lstrip("#").strip()
+            if title:
+                return title
+        # 否则取首行非空文字作为标题来源
+        break
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("```"):
+            # 限制 30 字
+            return stripped[:30]
+    return ""
+
+
 class AIClient:
-    """封装硅基流动 API：embedding + LLM 问答 + Markdown 格式化。"""
+    """封装 AI API：embedding（硅基流动）+ LLM（DeepSeek 官方）。"""
 
     def __init__(self, config: ApiConfig):
         self.config = config
-        self._client = OpenAI(
+        # embedding 客户端（始终走 base_url / api_key）
+        self._embed_client = OpenAI(
             base_url=config.base_url, api_key=config.api_key,
-            timeout=60.0, max_retries=1,
+            timeout=45.0, max_retries=0,
+        )
+        # LLM 客户端：llm_base_url 非空时独立，否则复用 embedding 配置
+        llm_url = config.llm_base_url or config.base_url
+        llm_key = config.llm_api_key or config.api_key
+        self._llm_client = OpenAI(
+            base_url=llm_url, api_key=llm_key,
+            timeout=45.0, max_retries=0,  # retry 由 _call_llm 自行管理
         )
 
+    def _call_llm(self, messages: list[dict], max_tokens: int = 300,
+                  temperature: float = 0.2, response_format: dict | None = None,
+                  max_retries: int = 2) -> str:
+        """调用 LLM chat completion，超时时自动重试。"""
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                kwargs = dict(
+                    model=self.config.llm_model, messages=messages,
+                    temperature=temperature, max_tokens=max_tokens,
+                )
+                if response_format:
+                    kwargs["response_format"] = response_format
+                resp = self._llm_client.chat.completions.create(**kwargs)
+                msg = resp.choices[0].message
+                # DeepSeek V4 是 reasoning 模型，content 可能为空但 reasoning_content 有内容
+                content = msg.content or ""
+                if not content:
+                    content = getattr(msg, "reasoning_content", "") or ""
+                return content
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    logger.warning("LLM 调用失败（%d/%d），重试中: %s",
+                                   attempt + 1, max_retries + 1, e)
+        raise last_error  # type: ignore[misc]
     def embed(self, text: str) -> np.ndarray:
-        resp = self._client.embeddings.create(
+        resp = self._embed_client.embeddings.create(
             model=self.config.embedding_model, input=text,
         )
         return np.array(resp.data[0].embedding, dtype=np.float32)
@@ -379,19 +440,21 @@ class AIClient:
             f"<content>\n{content[:4000]}\n</content>"
         )
         messages = [{"role": "user", "content": prompt}]
+        raw: str | None = None
+        # 阶段 1：JSON mode（带重试）
         try:
-            resp = self._client.chat.completions.create(
-                model=self.config.llm_model, messages=messages,
-                temperature=0.2, max_tokens=300,
-                response_format={"type": "json_object"},
-            )
-        except Exception:
-            # 模型/网关不支持 JSON mode 时退回普通模式
-            resp = self._client.chat.completions.create(
-                model=self.config.llm_model, messages=messages,
-                temperature=0.2, max_tokens=300,
-            )
-        raw = strip_outer_fences(resp.choices[0].message.content)
+            raw = self._call_llm(messages, max_tokens=800, temperature=0.2,
+                                 response_format={"type": "json_object"})
+        except Exception as e:
+            logger.warning("extract_meta JSON mode 失败: %s", e)
+        # 阶段 2：JSON mode 无结果时退回普通模式（带重试）
+        if raw is None:
+            try:
+                raw = self._call_llm(messages, max_tokens=800, temperature=0.2)
+            except Exception as e:
+                logger.warning("extract_meta 普通模式也失败: %s", e)
+                return "", ""
+        raw = strip_outer_fences(raw)
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
@@ -415,12 +478,9 @@ class AIClient:
             "- 直接输出 Markdown 正文，不要用 ```markdown 包裹，不要任何解释\n\n"
             f"<raw>\n{raw_text}\n</raw>"
         )
-        resp = self._client.chat.completions.create(
-            model=self.config.llm_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3, max_tokens=4000,
-        )
-        return normalize_llm_text(strip_outer_fences(resp.choices[0].message.content))
+        messages = [{"role": "user", "content": prompt}]
+        raw = self._call_llm(messages, max_tokens=4000, temperature=0.3)
+        return normalize_llm_text(strip_outer_fences(raw))
 
     def ask(self, query: str, context_entries: list[dict]) -> str:
         if not context_entries:
@@ -433,24 +493,21 @@ class AIClient:
                     f"内容: {e['content']}\n标签: {e['tags']}"
                 )
             context_text = "\n\n".join(parts)
-        resp = self._client.chat.completions.create(
-            model=self.config.llm_model,
-            messages=[
-                {"role": "system", "content": (
-                    "你是一个个人知识库助手，只根据提供的知识库条目回答问题。\n"
-                    "- 回答准确、可直接使用（命令、步骤、事实、结论均可）\n"
-                    "- 引用了哪些条目，在对应内容后标注来源，如 [#5]\n"
-                    "- 条目只部分覆盖问题时，说明哪部分来自知识库、哪部分缺失\n"
-                    "- 知识库没有相关信息就如实说明，严禁编造"
-                )},
-                {"role": "user", "content": (
-                    f"知识库条目：\n{context_text}\n\n"
-                    f"用户问题：{query}"
-                )},
-            ],
-            temperature=0.3, max_tokens=2000,
-        )
-        return normalize_llm_text(resp.choices[0].message.content.strip())
+        messages = [
+            {"role": "system", "content": (
+                "你是一个个人知识库助手，只根据提供的知识库条目回答问题。\n"
+                "- 回答准确、可直接使用（命令、步骤、事实、结论均可）\n"
+                "- 引用了哪些条目，在对应内容后标注来源，如 [#5]\n"
+                "- 条目只部分覆盖问题时，说明哪部分来自知识库、哪部分缺失\n"
+                "- 知识库没有相关信息就如实说明，严禁编造"
+            )},
+            {"role": "user", "content": (
+                f"知识库条目：\n{context_text}\n\n"
+                f"用户问题：{query}"
+            )},
+        ]
+        raw = self._call_llm(messages, max_tokens=2000, temperature=0.3)
+        return normalize_llm_text(raw.strip())
 
 
 # ── High-Level API ────────────────────────────────────────────────────────────
@@ -494,6 +551,10 @@ class KnowledgeBase:
             except Exception as e:
                 logger.warning("元数据提取失败: %s", e)
 
+        # 降级：AI 提取失败或返回空时，从内容提取标题
+        if not title:
+            title = fallback_title(content)
+
         embedding = None
         if self.ai:
             try:
@@ -535,11 +596,13 @@ class KnowledgeBase:
                     title, tags = self.ai.extract_meta(content)
                 except Exception as e:
                     logger.warning("元数据提取失败: %s", e)
+            # 降级：AI 提取失败或返回空时，从内容提取标题
+            if auto_meta and not title:
+                title = fallback_title(content)
         if title or tags:
             cur = self.store.get(entry_id)
             self.store.update_title_tags(entry_id, title or cur["title"], tags or cur["tags"])
         return self.store.get(entry_id)
-
     def reformat_entry(self, entry_id: int) -> Optional[dict]:
         """用 LLM 重新格式化已有条目为 Markdown。"""
         entry = self.store.get(entry_id)
