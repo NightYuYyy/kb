@@ -45,11 +45,14 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
     steps:
-      - uses: appleboy/ssh-action@v1
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            docker pull ghcr.io/${{ github.repository }}:latest
+            IMAGE=ghcr.io/${{ github.repository }}:latest
+            IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+            docker pull "$IMAGE"
             docker restart kb
