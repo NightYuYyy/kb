@@ -16,6 +16,4 @@ server:
   port: 8765
   # 必填：API 认证 token，用 python -c "import secrets; print(secrets.token_urlsafe(32))" 生成
   auth_token: ""
-  # 可选：对外访问地址（如 https://kb.example.com）。设置后「复制提示词」永远用这个地址，
-  # 不受你从 localhost 还是公网打开 Web UI 影响
-  public_url: ""
+  # 旧版 public_url 无需再设置：「复制提示词」使用当前浏览器访问地址。

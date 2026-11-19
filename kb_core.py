@@ -50,7 +50,7 @@ class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8765
     auth_token: str = ""
-    public_url: str = ""  # 对外访问地址（如 https://kb.example.com），用于生成 Agent 提示词
+    public_url: str = ""  # 保留兼容旧配置，不再覆盖 Agent 提示词的当前访问地址
 
 
 @dataclass
