@@ -4,9 +4,11 @@ kb_web.py — FastAPI REST API + 内嵌 Web UI
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Query, Depends, Header
+from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -134,6 +136,26 @@ def build_agent_prompt(kb_url: str, token: str) -> str:
             .replace("{TOKEN}", token or "{TOKEN}"))
 
 
+def _normalize_prompt_origin(origin: str) -> str:
+    # 插入可复制的 shell 命令前，只接受 HTTP(S) 来源：协议、主机和可选端口。
+    error = "base 必须是 HTTP(S) 访问地址，只包含协议、主机和可选端口"
+    try:
+        url = urlsplit(origin.strip())
+        port = url.port
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=error) from exc
+    if (
+        url.scheme not in {"http", "https"}
+        or not re.fullmatch(r"(?:[a-zA-Z0-9_.-]+|\[[a-fA-F0-9:.]+\])(?::[0-9]+)?", url.netloc)
+        or port == 0
+        or url.path not in {"", "/"}
+        or url.query
+        or url.fragment
+    ):
+        raise HTTPException(status_code=422, detail=error)
+    return f"{url.scheme}://{url.netloc}"
+
+
 # ── App Factory ──────────────────────────────────────────────────────────────
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -184,10 +206,17 @@ def create_app(kb: KnowledgeBase) -> FastAPI:
         return AddResponse(id=result["id"], title=result["title"], tags=result["tags"], content=result.get("content", ""))
 
     @app.get("/api/prompt", dependencies=[Depends(verify_auth)])
-    async def api_prompt(base: str = Query("", description="知识库对外地址，如 https://kb.example.com")):
-        # 配置了 public_url 时优先使用，避免从 localhost 打开 UI 复制出只能本机用的提示词
-        kb_url = kb.config.server.public_url or base
-        return JSONResponse({"prompt": build_agent_prompt(kb_url, auth_token)})
+    async def api_prompt(
+        request: Request,
+        base: str = Query("", description="访问来源（协议、主机和可选端口），如 https://kb.example.com"),
+    ):
+        # 浏览器传入 location.origin，HTTPS 反代后也不会变成后端内部地址。
+        origin = base or f"{request.url.scheme}://{request.url.netloc}"
+        kb_url = _normalize_prompt_origin(origin)
+        return JSONResponse(
+            {"prompt": build_agent_prompt(kb_url, auth_token)},
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.post("/api/ask", response_model=AskResponse, dependencies=[Depends(verify_auth)])
     async def api_ask(req: AskRequest):

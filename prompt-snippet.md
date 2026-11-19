@@ -6,7 +6,7 @@
 
 ## 方式一：Web UI 一键复制（推荐）
 
-登录 Web UI 后点右上角「📋 复制提示词」，得到已填好真实地址和 token 的完整版本。
+登录 Web UI 后点右上角「📋 复制提示词」，得到已填好当前访问地址（协议、域名或 IP、非默认端口）和 token 的完整版本。旧配置中的 `public_url` 不再覆盖这个地址。给另一台设备使用时，请从那台设备能访问的地址打开 Web UI 后再复制。
 
 ## 方式二：API 获取
 
@@ -15,7 +15,7 @@ curl -s "https://your-kb-host/api/prompt?base=https://your-kb-host" \
   -H "X-API-Key: <auth_token>"
 ```
 
-返回 `{"prompt": "..."}`，`base` 参数是知识库对外地址（省略时输出 `{KB_URL}` 占位符）。token 取自 `data/config.yaml` 的 `server.auth_token`。
+返回 `{"prompt": "..."}`。`base` 可选，只接受 HTTP(S) 的协议、主机和可选端口。省略时使用该 API 请求的协议和主机；反代后直接调用 API 时，应保留 `Host` 并让 Uvicorn 信任该反代传递的协议，或显式传入实际访问地址作为 `base`。响应含 token，请勿公开分享。
 
 ## 提示词涵盖的行为约定
 

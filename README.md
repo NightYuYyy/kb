@@ -11,12 +11,11 @@
 git clone https://github.com/NightYuYyy/kb.git && cd kb
 pip install -e .
 cp data/config.yaml.example data/config.yaml
-# 编辑 data/config.yaml:填 api_key;生成并填 auth_token;
-# 要给其他设备用的话,填 public_url 为对外地址
+# 编辑 data/config.yaml:填 api_key;生成并填 auth_token
 kb serve            # http://<host>:8765
 ```
 
-Docker 方式:`docker compose up -d`(配置同样读挂载的 `data/config.yaml`)。push 到 master 会由 GitHub Actions 自动构建镜像,也可直接拉取:`docker pull ghcr.io/nightyuyyy/kb:latest`。
+Docker 方式:`docker compose up -d`(配置同样读挂载的 `data/config.yaml`)。推送 `v*` 标签会触发 GitHub Actions 构建镜像并部署到 Actions 配置的服务器；普通分支推送不触发部署。也可直接拉取:`docker pull ghcr.io/nightyuyyy/kb:latest`。
 
 **安全提醒**:`auth_token` 必须改成随机值(`python -c "import secrets; print(secrets.token_urlsafe(32))"`),不要用示例值;服务暴露公网时建议套 HTTPS 反代。
 
@@ -26,7 +25,7 @@ Docker 方式:`docker compose up -d`(配置同样读挂载的 `data/config.yaml`
 
 **方式一:Agent 一键接入(推荐,无需手动安装)**
 
-打开 Web UI → 登录 → 点「📋 复制提示词」→ 发给新环境里的 agent(Claude Code / Codex 等)。这是一个**接入引导提示词**:agent 会把内嵌真实地址和 token 的「KB 技能定义」安装为自己的 skill(`~/.claude/skills/kb/SKILL.md`、`~/.codex/skills/kb/SKILL.md` 等),再验证连接并汇报——重开会话依然生效。网页对话 AI 无文件权限则在当前会话内直接遵守。也可 `GET /api/prompt?base=<对外地址>` 获取。
+打开 Web UI → 登录 → 点「📋 复制提示词」→ 发给新环境里的 agent(Claude Code / Codex 等)。提示词使用当前浏览器访问地址(协议、域名或 IP、非默认端口)，旧配置的 `public_url` 不再覆盖它。Agent 将内嵌地址和 token 的「KB 技能定义」安装为自己的 skill(`~/.claude/skills/kb/SKILL.md`、`~/.codex/skills/kb/SKILL.md` 等)后验证连接。网页对话 AI 无文件权限则在当前会话内直接遵守。也可 `GET /api/prompt` 获取；需要指定另一可达地址时传 `base`。
 
 **方式二:CLI 接入**
 
